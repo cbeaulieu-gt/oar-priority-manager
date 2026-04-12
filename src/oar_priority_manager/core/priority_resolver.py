@@ -6,7 +6,6 @@ See spec §5.4 (PriorityStack), §6.2 (priority_resolver responsibilities).
 from __future__ import annotations
 
 import logging
-from pathlib import Path
 
 from oar_priority_manager.core.models import PriorityStack, SubMod
 
@@ -59,13 +58,16 @@ def _get_scope_submods(
             sm_id = id(sm)
             if sm_id in seen:
                 continue
-            if scope == "submod" and sm is target:
-                seen.add(sm_id)
-                result.append(sm)
-            elif scope == "replacer" and sm.mo2_mod == target.mo2_mod and sm.replacer == target.replacer:
-                seen.add(sm_id)
-                result.append(sm)
-            elif scope == "mod" and sm.mo2_mod == target.mo2_mod:
+            in_scope = (
+                (scope == "submod" and sm is target)
+                or (
+                    scope == "replacer"
+                    and sm.mo2_mod == target.mo2_mod
+                    and sm.replacer == target.replacer
+                )
+                or (scope == "mod" and sm.mo2_mod == target.mo2_mod)
+            )
+            if in_scope:
                 seen.add(sm_id)
                 result.append(sm)
 
@@ -85,9 +87,10 @@ def _get_external_max(
             if anim not in conflict_map:
                 continue
             for competitor in conflict_map[anim]:
-                if id(competitor) not in scope_ids:
-                    if max_ext is None or competitor.priority > max_ext:
-                        max_ext = competitor.priority
+                if id(competitor) not in scope_ids and (
+                    max_ext is None or competitor.priority > max_ext
+                ):
+                    max_ext = competitor.priority
 
     return max_ext
 

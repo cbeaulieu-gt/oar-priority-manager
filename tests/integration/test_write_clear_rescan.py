@@ -12,9 +12,6 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-import pytest
-
-from oar_priority_manager.core.anim_scanner import scan_animations
 from oar_priority_manager.core.models import OverrideSource
 from oar_priority_manager.core.override_manager import clear_override, write_override
 from oar_priority_manager.core.scanner import scan_mods
@@ -25,7 +22,10 @@ class TestWriteClearRescan:
     """Full round-trip: write override, clear it, re-scan — state must be consistent."""
 
     def _setup_instance(self, tmp_path: Path) -> tuple[Path, Path]:
-        """Create two competing mods sharing an animation file. Returns (mods_dir, overwrite_dir)."""
+        """Create two competing mods sharing an animation file.
+
+        Returns (mods_dir, overwrite_dir).
+        """
         mods_dir = tmp_path / "mods"
         mods_dir.mkdir()
         overwrite_dir = tmp_path / "overwrite"
@@ -101,7 +101,7 @@ class TestWriteClearRescan:
         assert sub1.raw_dict.get("priority") == 100
 
     def test_rescan_after_clear_matches_cleared_state(self, tmp_path: Path):
-        """A fresh scan_mods after clear must produce a SubMod matching the post-clear in-memory state."""
+        """A fresh scan_mods after clear must match the post-clear in-memory state."""
         mods_dir, overwrite_dir = self._setup_instance(tmp_path)
 
         submods = scan_mods(mods_dir, overwrite_dir)

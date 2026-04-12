@@ -10,8 +10,8 @@ replacement for all fields except name/description (spec §4).
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable
 from pathlib import Path
-from typing import Callable
 
 from oar_priority_manager.core.models import METADATA_KEY, OAR_REL, OverrideSource, SubMod
 from oar_priority_manager.core.parser import parse_config

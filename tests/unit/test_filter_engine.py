@@ -3,12 +3,13 @@
 See spec §6.2 (filter_engine), §7.6 (condition filter semantics).
 """
 from __future__ import annotations
-import pytest
+
 from oar_priority_manager.core.filter_engine import (
     extract_condition_types,
     match_filter,
     parse_filter_query,
 )
+
 
 class TestExtractConditionTypes:
     def test_flat_condition_list(self):

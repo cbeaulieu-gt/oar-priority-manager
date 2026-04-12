@@ -97,7 +97,11 @@ class TestMetadataInjection:
                 "previousPriority": 100,
             },
         }
-        modified = {"name": "heavy", "priority": 500, "_oarPriorityManager": original["_oarPriorityManager"]}
+        modified = {
+            "name": "heavy",
+            "priority": 500,
+            "_oarPriorityManager": original["_oarPriorityManager"],
+        }
         out = tmp_path / "user.json"
         serialize_raw_dict(modified, original, out, previous_priority=300)
         result = json.loads(out.read_text(encoding="utf-8"))
@@ -115,7 +119,7 @@ class TestRoundTrip:
         result = json.loads(out.read_text(encoding="utf-8"))
         # _oarPriorityManager is appended at end, but original keys keep order
         original_keys = list(original.keys())
-        result_keys = [k for k in result.keys() if k != "_oarPriorityManager"]
+        result_keys = [k for k in result if k != "_oarPriorityManager"]
         assert result_keys == original_keys
 
     def test_nested_structures_preserved(self, tmp_path: Path):

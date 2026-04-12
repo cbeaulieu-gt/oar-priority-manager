@@ -7,8 +7,6 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import pytest
-
 from oar_priority_manager.core.anim_scanner import build_conflict_map, scan_animations
 from oar_priority_manager.core.models import OverrideSource, SubMod
 

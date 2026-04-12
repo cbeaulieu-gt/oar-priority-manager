@@ -8,8 +8,6 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-import pytest
-
 from oar_priority_manager.core.models import OverrideSource
 from oar_priority_manager.core.scanner import scan_mods
 from tests.conftest import OAR_REL, make_config_json, make_submod_dir

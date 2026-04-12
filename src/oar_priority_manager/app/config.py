@@ -3,6 +3,7 @@
 See spec §8.3 (tool config), §8.3.1 (detection chain).
 """
 from __future__ import annotations
+
 import json
 import logging
 from dataclasses import asdict, dataclass, field

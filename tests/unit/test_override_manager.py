@@ -8,8 +8,6 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-import pytest
-
 from oar_priority_manager.core.models import OverrideSource, SubMod
 from oar_priority_manager.core.override_manager import (
     _remove_empty_parents,

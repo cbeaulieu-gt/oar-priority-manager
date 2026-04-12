@@ -6,10 +6,10 @@ See spec §7.3. Full implementation in Task 14.
 from __future__ import annotations
 
 from PySide6.QtCore import Signal
-from PySide6.QtWidgets import QLabel, QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget
 
 from oar_priority_manager.core.models import SubMod
-from oar_priority_manager.ui.tree_model import NodeType, TreeNode, build_tree
+from oar_priority_manager.ui.tree_model import TreeNode, build_tree
 
 
 class TreePanel(QWidget):
@@ -48,7 +48,12 @@ class TreePanel(QWidget):
 
                 for sub_node in rep_node.children:
                     sm = sub_node.submod
-                    icon = "⚠" if (sm and sm.has_warnings) else ("✗" if (sm and sm.disabled) else "✓")
+                    if sm and sm.has_warnings:
+                        icon = "⚠"
+                    elif sm and sm.disabled:
+                        icon = "✗"
+                    else:
+                        icon = "✓"
                     sub_item = QTreeWidgetItem([f"{icon} {sub_node.display_name}"])
                     self._item_map[id(sub_item)] = sub_node
                     rep_item.addChild(sub_item)
@@ -59,7 +64,9 @@ class TreePanel(QWidget):
 
             self._tree.addTopLevelItem(mod_item)
 
-    def _on_selection(self, current: QTreeWidgetItem | None, _previous: QTreeWidgetItem | None) -> None:
+    def _on_selection(
+        self, current: QTreeWidgetItem | None, _previous: QTreeWidgetItem | None
+    ) -> None:
         if current is None:
             self.selection_changed.emit(None, None)
             return

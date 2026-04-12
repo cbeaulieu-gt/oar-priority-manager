@@ -10,7 +10,6 @@ import pytest
 
 from oar_priority_manager.app.config import AppConfig
 from oar_priority_manager.core.anim_scanner import build_conflict_map, scan_animations
-from oar_priority_manager.core.models import PriorityStack
 from oar_priority_manager.core.priority_resolver import build_stacks
 from oar_priority_manager.core.scanner import scan_mods
 from oar_priority_manager.ui.main_window import MainWindow

@@ -181,6 +181,4 @@ def match_filter(
     if not query.required.issubset(present):
         return False
     # No excluded type may be present.
-    if query.excluded & present:
-        return False
-    return True
+    return not (query.excluded & present)

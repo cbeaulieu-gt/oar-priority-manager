@@ -15,7 +15,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from oar_priority_manager.core.models import PriorityStack, SubMod
+from oar_priority_manager.core.models import SubMod
 
 
 class StacksPanel(QWidget):
@@ -103,7 +103,10 @@ class StacksPanel(QWidget):
         priorities = [c.priority for c in competitors]
         has_ties = len(priorities) != len(set(priorities))
         if has_ties and rank >= 0:
-            tied_with = [c for c in competitors if c.priority == selected.priority and c is not selected]
+            tied_with = [
+                c for c in competitors
+                if c.priority == selected.priority and c is not selected
+            ]
             if tied_with:
                 status += " <span style='color:#aa4'>⚠ TIED</span>"
 

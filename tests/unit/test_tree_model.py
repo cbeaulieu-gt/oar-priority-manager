@@ -3,10 +3,12 @@
 See spec §6.2 (tree_model), §7.3 (tree sort order).
 """
 from __future__ import annotations
+
 from pathlib import Path
-import pytest
+
 from oar_priority_manager.core.models import OverrideSource, SubMod
-from oar_priority_manager.ui.tree_model import SearchIndex, TreeNode, build_tree
+from oar_priority_manager.ui.tree_model import SearchIndex, build_tree
+
 
 def _sm(
     name: str,

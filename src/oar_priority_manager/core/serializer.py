@@ -13,7 +13,7 @@ from __future__ import annotations
 import json
 import os
 import tempfile
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 from oar_priority_manager.core.models import METADATA_KEY, IllegalMutationError
@@ -37,7 +37,7 @@ def _deep_equal(a: object, b: object) -> bool:
     if isinstance(a, list):
         if len(a) != len(b):  # type: ignore[arg-type]
             return False
-        return all(_deep_equal(x, y) for x, y in zip(a, b))  # type: ignore[arg-type]
+        return all(_deep_equal(x, y) for x, y in zip(a, b, strict=True))  # type: ignore[arg-type]
     return a == b
 
 
@@ -74,7 +74,7 @@ def _build_metadata(previous_priority: int | None) -> dict:
     """Build the _oarPriorityManager metadata object."""
     meta: dict = {
         "toolVersion": _TOOL_VERSION,
-        "writtenAt": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "writtenAt": datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
     }
     if previous_priority is not None:
         meta["previousPriority"] = previous_priority

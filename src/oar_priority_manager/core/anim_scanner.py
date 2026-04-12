@@ -62,7 +62,7 @@ def scan_animations(submods: list[SubMod]) -> None:
 
 
 def build_conflict_map(submods: list[SubMod]) -> dict[str, list[SubMod]]:
-    """Build a map of animation filename -> list of competing submods, sorted by priority descending.
+    """Build a map of animation filename -> list of competing submods, sorted by priority desc.
 
     See spec §5.4 (PriorityStack).
     """

@@ -10,10 +10,9 @@ import logging
 import sys
 from pathlib import Path
 
-from PySide6.QtWidgets import QApplication, QMessageBox
+from PySide6.QtWidgets import QApplication
 
 from oar_priority_manager.app.config import (
-    AppConfig,
     DetectionError,
     detect_instance_root,
     load_config,

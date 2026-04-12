@@ -3,9 +3,11 @@
 See spec §8.3 (tool config), §8.3.1 (instance detection chain).
 """
 from __future__ import annotations
-import json
+
 from pathlib import Path
+
 import pytest
+
 from oar_priority_manager.app.config import (
     AppConfig,
     DetectionError,
@@ -13,6 +15,7 @@ from oar_priority_manager.app.config import (
     load_config,
     save_config,
 )
+
 
 class TestInstanceDetection:
     def test_mods_path_cli_arg(self, tmp_path: Path):

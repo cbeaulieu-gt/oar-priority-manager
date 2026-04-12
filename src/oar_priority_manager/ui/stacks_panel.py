@@ -5,7 +5,7 @@ See spec §7.4. Center pane of the main layout.
 
 from __future__ import annotations
 
-from PySide6.QtCore import Signal
+from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
@@ -111,7 +111,7 @@ class StacksPanel(QWidget):
                 status += " <span style='color:#aa4'>⚠ TIED</span>"
 
         header = QLabel(f"▾ <b>{anim}</b> · {len(competitors)} competitors · {status}")
-        header.setTextFormat(1)  # RichText
+        header.setTextFormat(Qt.TextFormat.RichText)
         layout.addWidget(header)
 
         # Competitor rows

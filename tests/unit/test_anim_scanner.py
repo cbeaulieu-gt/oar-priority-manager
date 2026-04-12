@@ -8,7 +8,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from oar_priority_manager.core.anim_scanner import (
-    _extract_replacement_anim_data_filenames,
+    _extract_replaced_animations,
     build_conflict_map,
     scan_animations,
 )
@@ -94,11 +94,11 @@ class TestScanAnimations:
         scan_animations([sm])
         assert sm.animations == []
 
-    def test_discovers_replacement_anim_data_variants(
+    def test_discovers_replacement_anim_data_from_path(
         self, tmp_path: Path
     ):
-        """Animations in replacementAnimDatas are discovered even with no .hkx
-        files on the filesystem."""
+        """Animations in replacementAnimDatas are discovered from the path field
+        even with no .hkx files on the filesystem."""
         submod_dir = tmp_path / "sub1"
         submod_dir.mkdir()
 
@@ -108,10 +108,10 @@ class TestScanAnimations:
             "replacementAnimDatas": [
                 {
                     "projectName": "DefaultMale",
-                    "path": "data\\meshes\\actors\\character",
+                    "path": "data\\meshes\\actors\\character\\animations\\OAR\\mod\\_variants_sneakmtidle",
                     "variants": [
-                        {"filename": "relax10.hkx", "weight": 0.5},
-                        {"filename": "hmmm.hkx", "disabled": True},
+                        {"filename": "replacement1.hkx", "weight": 0.5},
+                        {"filename": "replacement2.hkx", "disabled": True},
                     ],
                 }
             ],
@@ -120,18 +120,20 @@ class TestScanAnimations:
             config_path=submod_dir / "config.json", raw_dict=raw
         )
         scan_animations([sm])
-        assert sm.animations == ["hmmm.hkx", "relax10.hkx"]
+        # Derived from path last segment "_variants_sneakmtidle" → sneakmtidle.hkx
+        assert sm.animations == ["sneakmtidle.hkx"]
 
     def test_replacement_anim_data_merged_with_filesystem(
         self, tmp_path: Path
     ):
-        """Filesystem .hkx files and replacementAnimDatas filenames are merged
-        and deduplicated."""
+        """Filesystem .hkx files and replacementAnimDatas path-derived names
+        are merged and deduplicated."""
         submod_dir = tmp_path / "sub1"
         submod_dir.mkdir()
-        # relax10.hkx exists both on disk and in config — should appear once.
-        (submod_dir / "relax10.hkx").touch()
+        # mt_idle.hkx exists both on disk and is also the target of a
+        # replacementAnimDatas entry — should appear once.
         (submod_dir / "mt_idle.hkx").touch()
+        (submod_dir / "mt_walkforward.hkx").touch()
 
         raw = {
             "name": "sub1",
@@ -139,11 +141,14 @@ class TestScanAnimations:
             "replacementAnimDatas": [
                 {
                     "projectName": "DefaultMale",
-                    "variants": [
-                        {"filename": "relax10.hkx"},
-                        {"filename": "config_only.hkx"},
-                    ],
-                }
+                    "path": "data\\meshes\\actors\\character\\animations\\OAR\\mod\\_variants_mt_idle",
+                    "variants": [{"filename": "replacement.hkx"}],
+                },
+                {
+                    "projectName": "DefaultMale",
+                    "path": "data\\meshes\\actors\\character\\animations\\OAR\\mod\\_variants_config_only",
+                    "variants": [{"filename": "replacement.hkx"}],
+                },
             ],
         }
         sm = _make_submod(
@@ -153,13 +158,13 @@ class TestScanAnimations:
         assert sm.animations == [
             "config_only.hkx",
             "mt_idle.hkx",
-            "relax10.hkx",
+            "mt_walkforward.hkx",
         ]
 
     def test_replacement_anim_data_case_insensitive(
         self, tmp_path: Path
     ):
-        """Variant filenames from config are normalised to lowercase."""
+        """Vanilla animation names derived from path are normalised to lowercase."""
         submod_dir = tmp_path / "sub1"
         submod_dir.mkdir()
 
@@ -169,11 +174,14 @@ class TestScanAnimations:
             "replacementAnimDatas": [
                 {
                     "projectName": "DefaultMale",
-                    "variants": [
-                        {"filename": "RELAX10.HKX"},
-                        {"filename": "MT_Idle.hkx"},
-                    ],
-                }
+                    "path": "data\\meshes\\actors\\character\\animations\\OAR\\mod\\_variants_RELAX10",
+                    "variants": [{"filename": "replacement.hkx"}],
+                },
+                {
+                    "projectName": "DefaultMale",
+                    "path": "data\\meshes\\actors\\character\\animations\\OAR\\mod\\_variants_MT_Idle",
+                    "variants": [{"filename": "replacement.hkx"}],
+                },
             ],
         }
         sm = _make_submod(
@@ -185,8 +193,7 @@ class TestScanAnimations:
     def test_replacement_anim_data_malformed_graceful(
         self, tmp_path: Path
     ):
-        """Missing variants key or missing filename key does not raise; result
-        is empty (or partial for valid entries)."""
+        """Missing or invalid path values do not raise; result is empty."""
         submod_dir = tmp_path / "sub1"
         submod_dir.mkdir()
 
@@ -194,16 +201,12 @@ class TestScanAnimations:
             "name": "sub1",
             "priority": 100,
             "replacementAnimDatas": [
-                # Entry with no 'variants' key
-                {"projectName": "DefaultMale"},
-                # Entry with variants but a variant missing 'filename'
-                {
-                    "projectName": "DefaultFemale",
-                    "variants": [
-                        {"weight": 0.5},  # no filename
-                        None,             # not a dict
-                    ],
-                },
+                # Entry with no 'path' key
+                {"projectName": "DefaultMale", "variants": []},
+                # Entry with a non-string path
+                {"projectName": "DefaultFemale", "path": 42},
+                # Entry with an empty string path
+                {"projectName": "DefaultFemale", "path": ""},
                 # Completely non-dict entry
                 "not_a_dict",
             ],
@@ -218,8 +221,8 @@ class TestScanAnimations:
     def test_replacement_anim_data_multiple_projects_deduplicated(
         self, tmp_path: Path
     ):
-        """Same filename appearing in both DefaultMale and DefaultFemale
-        entries is deduplicated to a single entry."""
+        """Same vanilla animation slot targeted by both DefaultMale and
+        DefaultFemale entries is deduplicated to a single entry."""
         submod_dir = tmp_path / "sub1"
         submod_dir.mkdir()
 
@@ -229,17 +232,23 @@ class TestScanAnimations:
             "replacementAnimDatas": [
                 {
                     "projectName": "DefaultMale",
-                    "variants": [
-                        {"filename": "relax10.hkx"},
-                        {"filename": "unique_male.hkx"},
-                    ],
+                    "path": "data\\meshes\\actors\\character\\animations\\OAR\\mod\\_variants_relax10",
+                    "variants": [{"filename": "male_replacement.hkx"}],
+                },
+                {
+                    "projectName": "DefaultMale",
+                    "path": "data\\meshes\\actors\\character\\animations\\OAR\\mod\\_variants_unique_male",
+                    "variants": [{"filename": "replacement.hkx"}],
                 },
                 {
                     "projectName": "DefaultFemale",
-                    "variants": [
-                        {"filename": "relax10.hkx"},
-                        {"filename": "unique_female.hkx"},
-                    ],
+                    "path": "data\\meshes\\actors\\character\\animations\\OAR\\mod\\_variants_relax10",
+                    "variants": [{"filename": "female_replacement.hkx"}],
+                },
+                {
+                    "projectName": "DefaultFemale",
+                    "path": "data\\meshes\\actors\\character\\animations\\OAR\\mod\\_variants_unique_female",
+                    "variants": [{"filename": "replacement.hkx"}],
                 },
             ],
         }
@@ -254,22 +263,139 @@ class TestScanAnimations:
         ]
 
 
-class TestExtractReplacementAnimDataFilenames:
-    """Unit tests for the _extract_replacement_anim_data_filenames helper."""
+class TestExtractReplacedAnimations:
+    """Unit tests for the _extract_replaced_animations helper."""
 
     def test_empty_dict_returns_empty_set(self):
-        assert _extract_replacement_anim_data_filenames({}) == set()
+        assert _extract_replaced_animations({}) == set()
 
     def test_key_absent_returns_empty_set(self):
-        assert _extract_replacement_anim_data_filenames(
-            {"name": "sub1"}
-        ) == set()
+        assert _extract_replaced_animations({"name": "sub1"}) == set()
 
     def test_non_list_value_returns_empty_set(self):
         """replacementAnimDatas that is not a list is ignored gracefully."""
-        assert _extract_replacement_anim_data_filenames(
+        assert _extract_replaced_animations(
             {"replacementAnimDatas": "oops"}
         ) == set()
+
+    def test_extracts_name_from_variants_prefix(self):
+        """Last path segment starting with _variants_ yields the stripped name."""
+        raw = {
+            "replacementAnimDatas": [
+                {
+                    "path": "data\\meshes\\actors\\character\\animations\\OAR\\mod\\_variants_sneakmtidle",
+                    "variants": [{"filename": "replacement.hkx"}],
+                }
+            ]
+        }
+        assert _extract_replaced_animations(raw) == {"sneakmtidle.hkx"}
+
+    def test_appends_hkx_extension(self):
+        """Derived name without .hkx gets the extension appended."""
+        raw = {
+            "replacementAnimDatas": [
+                {
+                    "path": "data\\meshes\\actors\\character\\animations\\OAR\\mod\\_variants_1hm_idle",
+                    "variants": [],
+                }
+            ]
+        }
+        assert _extract_replaced_animations(raw) == {"1hm_idle.hkx"}
+
+    def test_no_variants_prefix_uses_segment_as_is(self):
+        """Last path segment without _variants_ prefix is used directly."""
+        raw = {
+            "replacementAnimDatas": [
+                {
+                    "path": "data\\meshes\\actors\\character\\animations\\OAR\\mod\\mt_idle",
+                    "variants": [],
+                }
+            ]
+        }
+        assert _extract_replaced_animations(raw) == {"mt_idle.hkx"}
+
+    def test_multiple_entries_one_animation_per_entry(self):
+        """Each entry contributes exactly one animation regardless of how many
+        variant filenames it contains."""
+        raw = {
+            "replacementAnimDatas": [
+                {
+                    "path": "data\\meshes\\OAR\\mod\\_variants_sneakmtidle",
+                    "variants": [
+                        {"filename": "replacement.hkx"},
+                        {"filename": "replacement.hkx"},
+                    ],
+                },
+                {
+                    "path": "data\\meshes\\OAR\\mod\\_variants_1hm_idle",
+                    "variants": [{"filename": "replacement.hkx"}],
+                },
+            ]
+        }
+        assert _extract_replaced_animations(raw) == {
+            "sneakmtidle.hkx",
+            "1hm_idle.hkx",
+        }
+
+    def test_missing_path_key_skipped(self):
+        """Entry without a 'path' key is skipped without error."""
+        raw = {
+            "replacementAnimDatas": [
+                {"projectName": "DefaultMale", "variants": []},
+            ]
+        }
+        assert _extract_replaced_animations(raw) == set()
+
+    def test_non_string_path_skipped(self):
+        """Entry with a non-string path value is skipped without error."""
+        raw = {
+            "replacementAnimDatas": [
+                {"path": 99, "variants": []},
+            ]
+        }
+        assert _extract_replaced_animations(raw) == set()
+
+    def test_empty_string_path_skipped(self):
+        """Entry with an empty string path is skipped without error."""
+        raw = {
+            "replacementAnimDatas": [
+                {"path": "", "variants": []},
+            ]
+        }
+        assert _extract_replaced_animations(raw) == set()
+
+    def test_case_normalised_to_lowercase(self):
+        """Derived animation names are lowercased."""
+        raw = {
+            "replacementAnimDatas": [
+                {
+                    "path": "data\\meshes\\OAR\\mod\\_variants_Shd_BlockIdle",
+                    "variants": [],
+                }
+            ]
+        }
+        assert _extract_replaced_animations(raw) == {"shd_blockidle.hkx"}
+
+    def test_replacement_anim_data_extracts_from_path_not_variants(self):
+        """Each replacementAnimDatas entry = one vanilla animation derived from path."""
+        raw = {
+            "replacementAnimDatas": [
+                {
+                    "projectName": "DefaultMale",
+                    "path": "data\\meshes\\...\\submod\\_variants_sneakmtidle",
+                    "variants": [{"filename": "replacement.hkx"}],
+                },
+                {
+                    "projectName": "DefaultMale",
+                    "path": "data\\meshes\\...\\submod\\_variants_1hm_idle",
+                    "variants": [{"filename": "replacement.hkx"}],
+                },
+            ]
+        }
+        # Should extract sneakmtidle.hkx and 1hm_idle.hkx, NOT replacement.hkx
+        result = _extract_replaced_animations(raw)
+        assert result == {"sneakmtidle.hkx", "1hm_idle.hkx"}
+        assert "replacement.hkx" not in result
 
 
 class TestBuildConflictMap:

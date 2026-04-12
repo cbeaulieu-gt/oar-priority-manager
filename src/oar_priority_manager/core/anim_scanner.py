@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import logging
 from collections import defaultdict
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 
 from oar_priority_manager.core.models import SubMod
 
@@ -41,28 +41,34 @@ def _get_animation_dir(submod: SubMod) -> Path:
     return submod_dir
 
 
-def _extract_replacement_anim_data_filenames(
+def _extract_replaced_animations(
     raw_dict: dict,
 ) -> set[str]:
-    """Extract animation filenames declared in replacementAnimDatas config.
+    """Extract vanilla animation names from replacementAnimDatas config.
 
-    OAR submods may declare animations via a ``replacementAnimDatas`` array
-    in their config JSON rather than placing loose .hkx files on disk.  Each
-    entry in the array may target a different skeleton project (e.g.
-    DefaultMale / DefaultFemale) and contains a ``variants`` list whose
-    elements carry a ``filename`` field.
+    Each entry in the ``replacementAnimDatas`` array represents **one vanilla
+    animation slot** being overridden.  The identity of that slot is encoded
+    in the entry's ``path`` field — specifically in the last path segment,
+    which follows the convention ``_variants_<vanillaname>``.
 
-    All variants are included regardless of their ``disabled`` flag — a
-    disabled variant still names a real animation file that participates in
-    priority resolution.
+    For example, an entry whose path ends in ``_variants_sneakmtidle``
+    overrides the vanilla ``sneakmtidle.hkx``.  The variant ``filename``
+    fields inside each entry are the *replacement* .hkx assets used at
+    runtime; they are **not** the vanilla animation identifiers and are
+    intentionally ignored here.
+
+    Derivation rules for each entry's ``path`` last segment:
+    - If it starts with ``_variants_``, strip that prefix to get the name.
+    - Otherwise use the segment as-is.
+    - Lowercase and append ``.hkx`` if not already present.
 
     Args:
         raw_dict: The submod's raw config dictionary (``SubMod.raw_dict``).
 
     Returns:
-        A deduplicated set of lowercased animation filenames found across
-        all ``replacementAnimDatas`` entries.  Returns an empty set when the
-        key is absent or the data is malformed.
+        A deduplicated set of lowercased vanilla animation filenames, one per
+        ``replacementAnimDatas`` entry whose ``path`` can be parsed.  Returns
+        an empty set when the key is absent or the data is malformed.
     """
     filenames: set[str] = set()
     entries = raw_dict.get("replacementAnimDatas", [])
@@ -72,15 +78,23 @@ def _extract_replacement_anim_data_filenames(
     for entry in entries:
         if not isinstance(entry, dict):
             continue
-        variants = entry.get("variants", [])
-        if not isinstance(variants, list):
+        path = entry.get("path")
+        if not path or not isinstance(path, str):
             continue
-        for variant in variants:
-            if not isinstance(variant, dict):
-                continue
-            filename = variant.get("filename")
-            if filename and isinstance(filename, str):
-                filenames.add(filename.lower())
+        # Use PureWindowsPath to correctly parse backslash-separated OAR paths.
+        last_segment = PureWindowsPath(path).name
+        if not last_segment:
+            continue
+        if last_segment.startswith("_variants_"):
+            name = last_segment[len("_variants_"):]
+        else:
+            name = last_segment
+        if not name:
+            continue
+        name = name.lower()
+        if not name.endswith(".hkx"):
+            name += ".hkx"
+        filenames.add(name)
 
     return filenames
 
@@ -114,7 +128,7 @@ def scan_animations(submods: list[SubMod]) -> None:
             )
             hkx_files = set()
 
-        config_anims = _extract_replacement_anim_data_filenames(sm.raw_dict)
+        config_anims = _extract_replaced_animations(sm.raw_dict)
         sm.animations = sorted(hkx_files | config_anims)
 
 

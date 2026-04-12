@@ -7,12 +7,15 @@ Issues addressed:
   #34 — Rank badge colours (green for #1, grey for rest; red bg for losing rows)
   #35 — Expand/collapse animation sections
   #36 — Clickable competitor rows emitting competitor_focused signal
+  #68 — Action buttons moved to toolbar row
+  #69 — Relative/Absolute replaced with segmented toggle control
 """
 
 from __future__ import annotations
 
 from PySide6.QtCore import Qt, QTimer, Signal
 from PySide6.QtWidgets import (
+    QButtonGroup,
     QFrame,
     QHBoxLayout,
     QLabel,
@@ -33,7 +36,7 @@ from oar_priority_manager.core.models import SubMod
 class _StackSection(QWidget):
     """A single animation's priority stack — collapsible via header click."""
 
-    def __init__(self, header_html: str, parent: QWidget | None = None) -> None:
+    def __init__(self, header_text: str, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self._expanded = True
 
@@ -65,7 +68,7 @@ class _StackSection(QWidget):
         outer.addWidget(self._content)
 
         # Store the base header text (without arrow prefix) so we can rebuild it
-        self._header_html = header_html
+        self._header_text = header_text
         self._update_header()
 
     # ------------------------------------------------------------------
@@ -87,7 +90,7 @@ class _StackSection(QWidget):
 
     def _update_header(self) -> None:
         arrow = "▾" if self._expanded else "▸"
-        self._header_btn.setText(f"{arrow} {self._header_html}")
+        self._header_btn.setText(f"{arrow} {self._header_text}")
 
 
 # ---------------------------------------------------------------------------
@@ -193,32 +196,117 @@ class StacksPanel(QWidget):
     # ------------------------------------------------------------------
 
     def _setup_ui(self) -> None:
+        """Build the panel layout.
+
+        Layout (top to bottom):
+          1. Toolbar: segmented Relative|Absolute toggle, spacer, action buttons
+          2. Toast label (hidden by default)
+          3. Header label
+          4. Scroll area with collapsible stack sections
+        """
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
 
-        # ---- Toolbar: Relative / Absolute toggle (issue #33) ----
+        # ---- Toolbar row (issues #33, #68, #69) ----
         toolbar_widget = QWidget()
         toolbar = QHBoxLayout(toolbar_widget)
         toolbar.setContentsMargins(4, 4, 4, 2)
+        toolbar.setSpacing(4)
+
+        # -- Segmented Relative | Absolute toggle (issue #69) --
+        # Two checkable QPushButtons styled to sit flush with radius only on
+        # outside corners, giving the appearance of a single segmented control.
+        _seg_checked = (
+            "QPushButton:checked {"
+            "  background: #3a3a5a;"
+            "  font-weight: bold;"
+            "  border: 1px solid #5a5a8a;"
+            "}"
+        )
+        _seg_unchecked = (
+            "QPushButton {"
+            "  background: #2a2a2a;"
+            "  border: 1px solid #444;"
+            "  padding: 3px 10px;"
+            "}"
+            "QPushButton:hover { background: #333; }"
+        )
 
         self._rel_btn = QPushButton("Relative")
-        self._abs_btn = QPushButton("Absolute")
         self._rel_btn.setCheckable(True)
+        self._rel_btn.setChecked(True)
+        self._rel_btn.setStyleSheet(
+            _seg_unchecked + _seg_checked
+            + "QPushButton { border-radius: 0px;"
+            "  border-top-left-radius: 4px;"
+            "  border-bottom-left-radius: 4px;"
+            "  border-right: none; }"
+        )
+
+        self._abs_btn = QPushButton("Absolute")
         self._abs_btn.setCheckable(True)
-        self._rel_btn.setChecked(True)   # default: relative mode
         self._abs_btn.setChecked(False)
+        self._abs_btn.setStyleSheet(
+            _seg_unchecked + _seg_checked
+            + "QPushButton { border-radius: 0px;"
+            "  border-top-right-radius: 4px;"
+            "  border-bottom-right-radius: 4px; }"
+        )
+
+        # QButtonGroup enforces mutual exclusivity (issue #69)
+        self._mode_group = QButtonGroup(self)
+        self._mode_group.setExclusive(True)
+        self._mode_group.addButton(self._rel_btn)
+        self._mode_group.addButton(self._abs_btn)
+
         self._rel_btn.clicked.connect(lambda: self._set_mode(True))
         self._abs_btn.clicked.connect(lambda: self._set_mode(False))
+
         toolbar.addWidget(self._rel_btn)
         toolbar.addWidget(self._abs_btn)
-        toolbar.addStretch()
+
+        # Spacer between toggle and action buttons
+        toolbar.addSpacing(12)
+
+        # -- Action buttons inlined into toolbar (issue #68) --
+        self._move_to_top_btn = QPushButton("Move to Top")
+        self._move_to_top_btn.clicked.connect(
+            lambda: self.action_triggered.emit(
+                "move_to_top", self._current_submod, None
+            )
+        )
+        toolbar.addWidget(self._move_to_top_btn)
+
+        self._set_exact_btn = QPushButton("Set Exact…")
+        self._set_exact_btn.clicked.connect(self._on_set_exact)
+        toolbar.addWidget(self._set_exact_btn)
+
+        self._move_rep_btn = QPushButton("Move Replacer to Top")
+        self._move_rep_btn.clicked.connect(
+            lambda: self.action_triggered.emit(
+                "move_to_top_replacer", self._current_submod, None
+            )
+        )
+        toolbar.addWidget(self._move_rep_btn)
+
+        self._move_mod_btn = QPushButton("Move Mod to Top")
+        self._move_mod_btn.clicked.connect(
+            lambda: self.action_triggered.emit(
+                "move_to_top_mod", self._current_submod, None
+            )
+        )
+        toolbar.addWidget(self._move_mod_btn)
+
+        # No trailing stretch — toolbar fills naturally; action btns are right
+        # of the spacer and the segmented toggle anchors to the left.
         layout.addWidget(toolbar_widget)
 
         # ---- Toast notification (issue #37, spec §7.4) ----
         self._toast = QLabel()
         self._toast.setContentsMargins(8, 4, 8, 4)
         self._toast.setStyleSheet(
-            "background: #1a3a1a; color: #4a9; padding: 4px 8px; border-radius: 4px;"
+            "background: #1a3a1a; color: #4a9;"
+            " padding: 4px 8px; border-radius: 4px;"
         )
         self._toast.setWordWrap(True)
         self._toast.hide()
@@ -237,9 +325,6 @@ class StacksPanel(QWidget):
         self._content_layout.setContentsMargins(4, 4, 4, 4)
         self._scroll.setWidget(self._content)
         layout.addWidget(self._scroll)
-
-        # ---- Action buttons ----
-        layout.addWidget(self._build_action_bar())
 
     # ------------------------------------------------------------------
     # Public API (preserved from original)
@@ -334,17 +419,13 @@ class StacksPanel(QWidget):
         """
         rank = next((i for i, c in enumerate(competitors) if c is selected), -1)
 
-        # Build status HTML
+        # Build status text (plain text — QPushButton does not render rich text)
         if rank == 0:
-            status = "<span style='color:#4a9'>you're #1</span>"
+            status = "you're #1"
         elif rank > 0 and competitors:
             delta = competitors[0].priority - selected.priority
             target = competitors[0].priority + 1
-            status = (
-                f"<span style='color:#e66'>"
-                f"losing by {delta} · set to {target:,} to win"
-                f"</span>"
-            )
+            status = f"losing by {delta:,} · set to {target:,} to win"
         else:
             status = ""
 
@@ -357,12 +438,10 @@ class StacksPanel(QWidget):
                 if c.priority == selected.priority and c is not selected
             ]
             if tied_with:
-                status += " <span style='color:#aa4'>⚠ TIED</span>"
+                status += " \u26a0 TIED"
 
-        header_html = (
-            f"<b>{anim}</b> · {len(competitors)} competitors · {status}"
-        )
-        section = _StackSection(header_html)
+        header_text = f"{anim} · {len(competitors)} competitors · {status}"
+        section = _StackSection(header_text)
 
         # Restore collapsed state (issue #35)
         if self._collapsed.get(anim, False):
@@ -375,7 +454,7 @@ class StacksPanel(QWidget):
         _anim = anim  # capture for closure
         _orig_toggle = section._toggle
 
-        def _patched_toggle(s=section, a=_anim, orig=_orig_toggle):
+        def _patched_toggle(checked=False, *, s=section, a=_anim, orig=_orig_toggle):
             orig()
             self._collapsed[a] = not s._expanded
 
@@ -389,7 +468,7 @@ class StacksPanel(QWidget):
 
             if self._relative_mode:
                 delta = comp.priority - competitors[0].priority if competitors else 0
-                val_text = f"+{delta}" if delta >= 0 else str(delta)
+                val_text = f"+{delta:,}" if delta >= 0 else f"{delta:,}"
             else:
                 val_text = f"{comp.priority:,}"
 
@@ -412,48 +491,8 @@ class StacksPanel(QWidget):
         return section
 
     # ------------------------------------------------------------------
-    # Action bar
+    # Set Exact dialog
     # ------------------------------------------------------------------
-
-    def _build_action_bar(self) -> QWidget:
-        """Build Move to Top / Set Exact / scope-aware action buttons.
-
-        Includes three Move to Top variants (submod, replacer, mod scope) per
-        spec §7.8 and issue #39.
-        """
-        bar = QWidget()
-        layout = QHBoxLayout(bar)
-        layout.setContentsMargins(4, 4, 4, 4)
-
-        self._move_to_top_btn = QPushButton("Move to Top")
-        self._move_to_top_btn.clicked.connect(
-            lambda: self.action_triggered.emit("move_to_top", self._current_submod, None)
-        )
-        layout.addWidget(self._move_to_top_btn)
-
-        self._set_exact_btn = QPushButton("Set Exact…")
-        self._set_exact_btn.clicked.connect(self._on_set_exact)
-        layout.addWidget(self._set_exact_btn)
-
-        # Scope-aware Move to Top variants (issue #39)
-        self._move_rep_btn = QPushButton("Move Replacer to Top")
-        self._move_rep_btn.clicked.connect(
-            lambda: self.action_triggered.emit(
-                "move_to_top_replacer", self._current_submod, None
-            )
-        )
-        layout.addWidget(self._move_rep_btn)
-
-        self._move_mod_btn = QPushButton("Move Mod to Top")
-        self._move_mod_btn.clicked.connect(
-            lambda: self.action_triggered.emit(
-                "move_to_top_mod", self._current_submod, None
-            )
-        )
-        layout.addWidget(self._move_mod_btn)
-
-        layout.addStretch()
-        return bar
 
     def _on_set_exact(self) -> None:
         from PySide6.QtWidgets import QInputDialog

@@ -22,7 +22,9 @@ class DetailsPanel(QWidget):
         self._label = QLabel("Select an item in the tree to see details.")
         self._label.setWordWrap(True)
         self._label.setTextFormat(Qt.TextFormat.RichText)
+        self._label.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
         layout.addWidget(self._label)
+        layout.addStretch()
 
     def update_selection(self, node: TreeNode | None) -> None:
         """Update display based on the selected tree node.

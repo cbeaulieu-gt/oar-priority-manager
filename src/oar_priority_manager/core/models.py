@@ -18,7 +18,7 @@ class OverrideSource(Enum):
     OVERWRITE = "overwrite"    # user.json in MO2 Overwrite folder
 
 
-@dataclass
+@dataclass(eq=False)
 class SubMod:
     """A single OAR submod discovered during scan.
 

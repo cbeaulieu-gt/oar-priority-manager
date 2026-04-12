@@ -21,6 +21,7 @@ from oar_priority_manager.ui.conditions_panel import ConditionsPanel
 from oar_priority_manager.ui.details_panel import DetailsPanel
 from oar_priority_manager.ui.search_bar import SearchBar
 from oar_priority_manager.ui.stacks_panel import StacksPanel
+from oar_priority_manager.ui.tree_model import SearchIndex
 from oar_priority_manager.ui.tree_panel import TreePanel
 
 
@@ -91,16 +92,39 @@ class MainWindow(QMainWindow):
         shortcut = QShortcut(QKeySequence("Ctrl+F"), self)
         shortcut.activated.connect(self._search_bar.focus_search)
 
+        # Search bar gets keyboard focus on launch (spec §7.2)
+        self._search_bar.focus_search()
+
     def _connect_signals(self) -> None:
         self._tree_panel.selection_changed.connect(self._on_tree_selection)
+        self._search_bar.search_changed.connect(self._on_search)
         self._search_bar.refresh_requested.connect(self._on_refresh)
         self._stacks_panel.action_triggered.connect(self._on_action)
+        self._stacks_panel.competitor_focused.connect(self._on_competitor_focused)
 
-    def _on_tree_selection(self, node_type, submod) -> None:
-        self._details_panel.update_selection(node_type, submod)
-        self._stacks_panel.update_selection(submod)
+    def _on_tree_selection(self, node) -> None:
+        self._details_panel.update_selection(node)
+        submod = node.submod if node else None
+        if submod:
+            self._stacks_panel.update_selection(submod)
+            self._conditions_panel.update_focus(submod)
+
+    def _on_competitor_focused(self, submod: SubMod) -> None:
+        """Update conditions panel when a competitor row is clicked (spec §7.5)."""
         if submod:
             self._conditions_panel.update_focus(submod)
+
+    def _on_search(self, query: str) -> None:
+        """Filter tree based on search query (spec §7.2)."""
+        if not query.strip():
+            self._tree_panel.filter_tree(None)
+            return
+
+        # Build search index on each search (fast enough for typical mod counts)
+        index = SearchIndex(self._tree_panel.tree_root, self._conflict_map)
+        results = index.search(query)
+        matching = {id(r.node) for r in results}
+        self._tree_panel.filter_tree(matching)
 
     def _on_action(self, action: str, submod: SubMod, value: object) -> None:
         """Handle priority mutation actions from the stacks panel (spec §6.3 step 5)."""

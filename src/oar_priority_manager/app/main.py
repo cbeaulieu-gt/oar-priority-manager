@@ -89,8 +89,17 @@ def main(argv: list[str] | None = None) -> int:
     submods, conflict_map, stacks = run_scan(instance_root)
     logger.info("Loaded %d submods, %d animation stacks", len(submods), len(stacks))
 
-    app = QApplication(sys.argv)
+    # Force the native Windows platform plugin.  pytest-qt sets
+    # QT_QPA_PLATFORM=offscreen for headless tests — if that leaks into
+    # a real launch (same terminal, IDE env, etc.) the app renders to an
+    # invisible buffer and no window ever appears.
+    import os
+    os.environ.pop("QT_QPA_PLATFORM", None)
+    app = QApplication(sys.argv[:1] + ["-platform", "windows"])
     app.setApplicationName("OAR Priority Manager")
+
+    # Diagnostic: which Qt platform plugin is loaded?
+    logger.info("Qt platform: %s", app.platformName())
 
     from oar_priority_manager.ui.main_window import MainWindow
 
@@ -102,6 +111,15 @@ def main(argv: list[str] | None = None) -> int:
         instance_root=instance_root,
     )
     window.show()
+    window.activateWindow()
+    app.processEvents()
+
+    logger.info(
+        "Window state: visible=%s geometry=%s handle=%s",
+        window.isVisible(),
+        window.geometry(),
+        window.windowHandle(),
+    )
 
     exit_code = app.exec()
     save_config(app_config, config_path)

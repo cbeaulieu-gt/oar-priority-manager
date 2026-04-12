@@ -55,11 +55,12 @@ class MainWindow(QMainWindow):
         main_layout = QVBoxLayout(central)
         main_layout.setContentsMargins(4, 4, 4, 4)
 
-        # Top bar: search + advanced + refresh
+        # Top bar: search + advanced + refresh (fixed height, no stretch)
         self._search_bar = SearchBar()
-        main_layout.addWidget(self._search_bar)
+        self._search_bar.setFixedHeight(40)
+        main_layout.addWidget(self._search_bar, stretch=0)
 
-        # Three-pane splitter
+        # Three-pane splitter (takes all remaining space)
         self._main_splitter = QSplitter(Qt.Orientation.Horizontal)
 
         # Left column: tree + details (vertical split)
@@ -84,7 +85,7 @@ class MainWindow(QMainWindow):
         self._main_splitter.setStretchFactor(1, 2)
         self._main_splitter.setStretchFactor(2, 1)
 
-        main_layout.addWidget(self._main_splitter)
+        main_layout.addWidget(self._main_splitter, stretch=1)
 
         # Ctrl+F shortcut to focus search
         shortcut = QShortcut(QKeySequence("Ctrl+F"), self)

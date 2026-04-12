@@ -107,3 +107,37 @@ def test_illegal_mutation_error():
     err = IllegalMutationError("conditions", "original_value", "new_value")
     assert "conditions" in str(err)
     assert isinstance(err, Exception)
+
+
+def _make_submod(animations: list[str]) -> SubMod:
+    """Helper: construct a minimal SubMod with the given animations list."""
+    return SubMod(
+        mo2_mod="Test Mod",
+        replacer="rep",
+        name="submod",
+        description="",
+        priority=100,
+        source_priority=100,
+        disabled=False,
+        config_path=Path("C:/mods/Test/meshes/actors/character/animations/OpenAnimationReplacer/rep/submod/config.json"),
+        override_source=OverrideSource.SOURCE,
+        override_is_ours=False,
+        raw_dict={"name": "submod", "priority": 100},
+        animations=animations,
+        conditions={},
+        condition_types_present=set(),
+        condition_types_negated=set(),
+        warnings=[],
+    )
+
+
+def test_is_config_only_false_when_has_animations():
+    """A submod with animations is NOT config-only."""
+    sm = _make_submod(["mt_idle.hkx", "mt_walkforward.hkx"])
+    assert sm.is_config_only is False
+
+
+def test_is_config_only_true_when_no_animations():
+    """A submod with an empty animations list IS config-only."""
+    sm = _make_submod([])
+    assert sm.is_config_only is True

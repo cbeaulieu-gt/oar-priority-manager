@@ -1,0 +1,53 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Launch App (real mods)",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "oar_priority_manager",
+      "args": [
+        "--mods-path", "${input:modsPath}"
+      ],
+      "console": "integratedTerminal",
+      "justMyCode": true
+    },
+    {
+      "name": "Launch App (debug)",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "oar_priority_manager",
+      "args": [
+        "--mods-path", "${input:modsPath}",
+        "--debug"
+      ],
+      "console": "integratedTerminal",
+      "justMyCode": false
+    },
+    {
+      "name": "Debug Current Test File",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "pytest",
+      "args": [
+        "${file}",
+        "-v",
+        "--tb=long",
+        "-x"
+      ],
+      "console": "integratedTerminal",
+      "env": {
+        "QT_QPA_PLATFORM": "offscreen"
+      },
+      "justMyCode": false
+    }
+  ],
+  "inputs": [
+    {
+      "id": "modsPath",
+      "type": "promptString",
+      "description": "Path to your MO2 mods directory",
+      "default": ""
+    }
+  ]
+}

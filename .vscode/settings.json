@@ -1,0 +1,30 @@
+{
+  "python.defaultInterpreterPath": "${workspaceFolder}/.venv/Scripts/python.exe",
+  "python.terminal.activateEnvInCurrentTerminal": true,
+
+  // Linting — ruff handles everything
+  "[python]": {
+    "editor.defaultFormatter": "charliermarsh.ruff",
+    "editor.formatOnSave": true,
+    "editor.codeActionsOnSave": {
+      "source.fixAll.ruff": "explicit",
+      "source.organizeImports.ruff": "explicit"
+    }
+  },
+
+  // Testing
+  "python.testing.pytestEnabled": true,
+  "python.testing.pytestArgs": [
+    "tests",
+    "-v",
+    "--tb=short"
+  ],
+
+  // Type checking
+  "python.analysis.typeCheckingMode": "basic",
+
+  // Terminal env for PySide6 headless testing
+  "terminal.integrated.env.windows": {
+    "QT_QPA_PLATFORM": "offscreen"
+  }
+}

@@ -28,7 +28,6 @@ env/
 *.onefile-build/
 
 # IDE / editor
-.vscode/
 .idea/
 *.swp
 *.swo

@@ -6,9 +6,9 @@ build-backend = "setuptools.build_meta"
 name = "oar-priority-manager"
 version = "0.1.0"
 description = "OAR priority management tool for Skyrim modders using MO2"
-requires-python = ">=3.11"
+requires-python = ">=3.11,<3.15"
 dependencies = [
-    "PySide6-Essentials>=6.6,<6.9",
+    "PySide6-Essentials>=6.6,<7",
 ]
 
 [project.optional-dependencies]

@@ -65,6 +65,11 @@ class SubMod:
         return len(self.warnings) > 0
 
     @property
+    def is_config_only(self) -> bool:
+        """True if this submod has no animations — it's a pure config/toggle flag."""
+        return len(self.animations) == 0
+
+    @property
     def is_overridden(self) -> bool:
         """True if priority differs from the source config.json value."""
         return self.priority != self.source_priority

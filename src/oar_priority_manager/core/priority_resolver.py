@@ -16,7 +16,7 @@ INT32_MAX = 2_147_483_647
 INT32_MIN = -2_147_483_648
 
 
-class OverflowError(Exception):
+class PriorityOverflowError(Exception):
     """Raised when a computed priority would exceed INT32 range."""
 
     def __init__(self, computed: int) -> None:
@@ -29,7 +29,7 @@ class OverflowError(Exception):
 
 def _check_overflow(value: int) -> None:
     if value > INT32_MAX or value < INT32_MIN:
-        raise OverflowError(value)
+        raise PriorityOverflowError(value)
 
 
 def build_stacks(conflict_map: dict[str, list[SubMod]]) -> list[PriorityStack]:
@@ -108,7 +108,7 @@ def move_to_top(
         Dict of SubMod -> new_priority. Empty if already winning everywhere.
 
     Raises:
-        OverflowError: If computed priority exceeds INT32_MAX.
+        PriorityOverflowError: If computed priority exceeds INT32_MAX.
     """
     scope_submods = _get_scope_submods(target, conflict_map, scope)
     if not scope_submods:
@@ -146,7 +146,7 @@ def set_exact(target: SubMod, priority: int) -> dict[SubMod, int]:
     """Set an exact priority for a single submod.
 
     Raises:
-        OverflowError: If priority exceeds INT32 range.
+        PriorityOverflowError: If priority exceeds INT32 range.
     """
     _check_overflow(priority)
     return {target: priority}
@@ -167,7 +167,12 @@ def shift(
         Dict of SubMod -> new_priority.
 
     Raises:
-        OverflowError: If any computed priority exceeds INT32 range.
+        PriorityOverflowError: If any computed priority exceeds INT32 range.
+
+    Note:
+        The caller is responsible for ensuring all submods belong to the same
+        logical group. Passing submods from different mods preserves relative
+        gaps but may produce semantically meaningless results.
     """
     if not submods:
         return {}

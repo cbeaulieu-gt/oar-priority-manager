@@ -12,7 +12,8 @@ import pytest
 from oar_priority_manager.core.models import OverrideSource, SubMod
 from oar_priority_manager.core.priority_resolver import (
     INT32_MAX,
-    OverflowError as PriorityOverflowError,
+    INT32_MIN,
+    PriorityOverflowError,
     build_stacks,
     move_to_top,
     set_exact,
@@ -138,6 +139,17 @@ class TestOverflowGuard:
         conflict_map = {"idle.hkx": [competitor, target]}
         with pytest.raises(PriorityOverflowError):
             move_to_top(target, conflict_map, scope="submod")
+
+    def test_rejects_negative_overflow_set_exact(self):
+        target = _sm("you", 100, animations=["idle.hkx"])
+        with pytest.raises(PriorityOverflowError):
+            set_exact(target, INT32_MIN - 1)
+
+    def test_rejects_negative_overflow_shift(self):
+        sub_a = _sm("a", 0, animations=["idle.hkx"])
+        sub_b = _sm("b", 100, animations=["idle.hkx"])
+        with pytest.raises(PriorityOverflowError):
+            shift([sub_a, sub_b], floor_priority=INT32_MIN - 1)
 
 
 class TestSetExact:

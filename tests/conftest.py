@@ -13,9 +13,7 @@ from typing import Any
 
 import pytest
 
-
-# --- Standard OAR directory path segments ---
-OAR_REL = Path("meshes/actors/character/animations/OpenAnimationReplacer")
+from oar_priority_manager.core.models import OAR_REL
 
 
 def _write_json(path: Path, data: dict[str, Any]) -> Path:

@@ -9,6 +9,10 @@ from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
 
+# Shared constants — single source of truth
+OAR_REL = Path("meshes/actors/character/animations/OpenAnimationReplacer")
+METADATA_KEY = "_oarPriorityManager"
+
 
 class OverrideSource(Enum):
     """Where the effective priority was read from (spec §5.3)."""
@@ -41,9 +45,19 @@ class SubMod:
     raw_dict: dict
     animations: list[str] = field(default_factory=list)
     conditions: dict = field(default_factory=dict)
+    # Populated by filter_engine.py (Task 9). Empty until that module exists.
     condition_types_present: set[str] = field(default_factory=set)
     condition_types_negated: set[str] = field(default_factory=set)
     warnings: list[str] = field(default_factory=list)
+
+    def __eq__(self, other: object) -> bool:
+        """Two SubMods are equal if they point to the same config.json."""
+        if not isinstance(other, SubMod):
+            return NotImplemented
+        return self.config_path == other.config_path
+
+    def __hash__(self) -> int:
+        return hash(self.config_path)
 
     @property
     def has_warnings(self) -> bool:

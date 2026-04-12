@@ -11,17 +11,16 @@ into condition editing or disable toggling — the trap that killed attempts 1 a
 from __future__ import annotations
 
 import json
+import os
+import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 
-from oar_priority_manager.core.models import IllegalMutationError
+from oar_priority_manager.core.models import METADATA_KEY, IllegalMutationError
 
 # The ONLY fields the tool is allowed to modify. Everything else must round-trip
 # unchanged. _oarPriorityManager is handled separately (always injected/updated).
 MUTABLE_FIELDS: frozenset[str] = frozenset({"priority"})
-
-# Metadata key injected into every tool-written user.json (spec §8.1.1)
-METADATA_KEY = "_oarPriorityManager"
 
 # Current tool version — embedded in metadata for provenance tracking
 _TOOL_VERSION = "0.1.0"
@@ -106,11 +105,18 @@ def serialize_raw_dict(
     output = dict(modified)
     output[METADATA_KEY] = _build_metadata(previous_priority)
 
-    # Create parent directories
     output_path.parent.mkdir(parents=True, exist_ok=True)
+    json_text = json.dumps(output, indent=2, ensure_ascii=False) + "\n"
 
-    # Write with consistent formatting (spec §8.1.2)
-    output_path.write_text(
-        json.dumps(output, indent=2, ensure_ascii=False) + "\n",
-        encoding="utf-8",
+    # Atomic write: write to temp file then rename (safe on NTFS).
+    # Prevents a crash mid-write from leaving a partial/corrupt user.json.
+    fd, tmp_path_str = tempfile.mkstemp(
+        dir=output_path.parent, suffix=".tmp", prefix=".oar_"
     )
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write(json_text)
+        Path(tmp_path_str).replace(output_path)
+    except BaseException:
+        Path(tmp_path_str).unlink(missing_ok=True)
+        raise

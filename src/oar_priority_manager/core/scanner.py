@@ -11,17 +11,12 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
+from typing import Callable
 
-from oar_priority_manager.core.models import OverrideSource, SubMod
+from oar_priority_manager.core.models import METADATA_KEY, OAR_REL, OverrideSource, SubMod
 from oar_priority_manager.core.parser import parse_config
 
 logger = logging.getLogger(__name__)
-
-# The relative path within a mod that marks the OAR animation replacer root
-OAR_REL = Path("meshes/actors/character/animations/OpenAnimationReplacer")
-
-# Metadata key injected by this tool into Overwrite user.json files
-METADATA_KEY = "_oarPriorityManager"
 
 
 def _find_submod_dirs(mods_dir: Path) -> list[tuple[str, str, str, Path]]:
@@ -109,7 +104,7 @@ def _build_submod(
     if overwrite_user.is_file():
         ow_dict, ow_warnings = parse_config(overwrite_user)
         warnings.extend(ow_warnings)
-        if ow_dict:
+        if ow_dict:  # Empty dict {} means parse failed or no useful data — fall through
             override_source = OverrideSource.OVERWRITE
             raw_dict = ow_dict
             effective_priority = ow_dict.get("priority", source_priority)
@@ -122,7 +117,7 @@ def _build_submod(
     elif source_user.is_file():
         su_dict, su_warnings = parse_config(source_user)
         warnings.extend(su_warnings)
-        if su_dict:
+        if su_dict:  # Empty dict {} means parse failed or no useful data — fall through
             override_source = OverrideSource.USER_JSON
             # CRITICAL: raw_dict from user.json, not config.json (spec §4)
             raw_dict = su_dict
@@ -158,22 +153,32 @@ def _build_submod(
     )
 
 
-def scan_mods(mods_dir: Path, overwrite_dir: Path) -> list[SubMod]:
+def scan_mods(
+    mods_dir: Path,
+    overwrite_dir: Path,
+    on_progress: Callable[[int, int], None] | None = None,
+) -> list[SubMod]:
     """Scan the MO2 instance and build SubMod records for every OAR submod.
 
     Args:
         mods_dir: Path to the MO2 mods/ directory.
         overwrite_dir: Path to the MO2 overwrite/ directory.
+        on_progress: Optional callback invoked after each submod is built.
+            Called with (current, total) where current is the number of submods
+            built so far and total is the total number to build.
 
     Returns:
         List of SubMod records. Submods with parse errors have non-empty warnings.
     """
     submod_dirs = _find_submod_dirs(mods_dir)
+    total = len(submod_dirs)
     submods: list[SubMod] = []
 
     for mo2_mod, replacer, submod_folder, submod_path in submod_dirs:
         sm = _build_submod(mo2_mod, replacer, submod_folder, submod_path, overwrite_dir)
         submods.append(sm)
+        if on_progress is not None:
+            on_progress(len(submods), total)
 
     logger.info("Scanned %d submods from %s", len(submods), mods_dir)
     return submods

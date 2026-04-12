@@ -12,6 +12,7 @@ import pytest
 
 from oar_priority_manager.core.models import OverrideSource, SubMod
 from oar_priority_manager.core.override_manager import (
+    _remove_empty_parents,
     clear_override,
     compute_overwrite_path,
     write_override,
@@ -117,3 +118,51 @@ class TestClearOverride:
         overwrite_dir.mkdir()
         # Should not raise
         clear_override(sm, overwrite_dir)
+
+
+class TestRemoveEmptyParents:
+    def test_removes_empty_parents_up_to_boundary(self, tmp_path: Path):
+        """Nested empty dirs are removed; boundary dir itself is kept."""
+        boundary = tmp_path / "stop"
+        boundary.mkdir()
+        leaf = boundary / "a" / "b" / "c"
+        leaf.mkdir(parents=True)
+
+        _remove_empty_parents(leaf, boundary)
+
+        # All intermediate dirs should be gone
+        assert not (boundary / "a").exists()
+        # Boundary itself must survive
+        assert boundary.exists()
+
+    def test_stops_at_nonempty_parent(self, tmp_path: Path):
+        """Stops climbing when a parent directory still has content."""
+        boundary = tmp_path / "stop"
+        boundary.mkdir()
+        mid = boundary / "mid"
+        mid.mkdir()
+        # Sibling file makes mid non-empty
+        (mid / "sibling.txt").write_text("keep me")
+        leaf = mid / "empty_child"
+        leaf.mkdir()
+
+        _remove_empty_parents(leaf, boundary)
+
+        # The empty leaf is removed
+        assert not leaf.exists()
+        # mid still exists because it has sibling.txt
+        assert mid.exists()
+
+    def test_stops_at_boundary(self, tmp_path: Path):
+        """Boundary directory is never removed even when empty."""
+        boundary = tmp_path / "stop"
+        boundary.mkdir()
+        leaf = boundary / "child"
+        leaf.mkdir()
+
+        _remove_empty_parents(leaf, boundary)
+
+        # child was empty and removed
+        assert not leaf.exists()
+        # boundary survives
+        assert boundary.exists()

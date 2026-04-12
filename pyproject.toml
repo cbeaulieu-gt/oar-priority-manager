@@ -1,0 +1,42 @@
+[build-system]
+requires = ["setuptools>=68.0", "setuptools-scm"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "oar-priority-manager"
+version = "0.1.0"
+description = "OAR priority management tool for Skyrim modders using MO2"
+requires-python = ">=3.11"
+dependencies = [
+    "PySide6-Essentials>=6.6,<6.9",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "pytest-qt>=4.4",
+    "ruff>=0.4",
+    "mypy>=1.10",
+]
+
+[project.gui-scripts]
+oar-priority-manager = "oar_priority_manager.app.main:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.ruff]
+target-version = "py311"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B", "SIM"]
+
+[tool.mypy]
+python_version = "3.11"
+strict = false
+warn_return_any = true
+warn_unused_configs = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

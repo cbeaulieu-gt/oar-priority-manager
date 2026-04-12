@@ -42,7 +42,8 @@ The critical lesson from both: **condition semantics is a trap.** This design ex
 - Let the user adjust priorities with three operations: Move to Top, Set Exact Priority, and Shift to Priority N.
 - Persist all priority changes to the MO2 Overwrite folder at mirrored relative paths, never touching source mod files.
 - Surface the MO2 mod folder provenance of every submod — the one piece of information OAR's in-game UI cannot show.
-- Let the user filter the visible set of submods by structural presence of condition types (e.g. "show me every submod that has an `IsFemale` condition anywhere in its tree").
+- Let the user find any mod, submod, or animation by name in under 5 seconds via a unified search bar — the primary interaction for the core workflow.
+- Let the user filter the visible set of submods by structural presence of condition types (e.g. "show me every submod that has an `IsFemale` condition anywhere in its tree") — a secondary interaction for cross-mod auditing.
 - Run as an MO2 Executable so it sees the correct merged VFS state.
 
 ### 3.2 Non-goals
@@ -211,6 +212,8 @@ This is a deliberate trade-off. Semantic filtering ("show me submods that apply 
 - **Level 2 (Replacers):** alphabetical by folder name (our addition; OAR's UI flattens this level, but the filesystem layer is useful for provenance)
 - **Level 3 (Submods):** priority descending (matches OAR's UI sort order), with a user-toggleable alphabetical sort
 
+Also builds a **search index** consumed by the unified search bar (§7.2): a flat list of `(display_text, node_type, tree_path)` tuples covering mod names, submod names, replacer names, and animation filenames. The search bar fuzzy-matches against `display_text` and highlights the corresponding `tree_path` in the tree. Animation filename matches highlight every submod that provides that animation (derived from the conflict map).
+
 **UI modules** — covered in §7.
 
 **`app/config.py`** — Tool's own config (Relative/Absolute toggle state, window geometry, sort toggle state, filter history). Stored as JSON at `<MO2 instance root>/oar-priority-manager/config.json`. Instance root detection uses the chain described in §8.3.1 (`--mods-path` CLI arg → CWD check → walk-up → manual picker).
@@ -262,30 +265,45 @@ The main window uses a three-pane layout with a vertically split left column:
 
 ```
 ┌─────────────────────────────────────────────────────────────────────┐
-│  [filter text input]  [Advanced…]                                    │
+│  [🔍 Search mods, submods, animations…]  [Advanced…]  [🔄 Refresh]  │
 ├─────────────────┬──────────────────────────────┬────────────────────┤
 │                 │ Priority Stacks              │ Conditions         │
 │  Tree           │ [filter animations]          │ [Formatted][Raw]   │
 │  ────           │ [Relative][Absolute] [Coll]  │ ──────────         │
 │  (mods)         │                              │                    │
-│                 │ ▾ mt_idle.hkx                │ REQUIRED           │
+│                 │ ▾ mt_idle.hkx · you're #1    │ REQUIRED           │
 │                 │   #1 +0   (you)              │   ✓ Is Female      │
 │                 │   #2 −70  Vanilla Tweaks     │                    │
 │                 │                              │ ONE OF             │
-│                 │ ▾ mt_walk.hkx                │   • Heavy Armor    │
+│                 │ ▾ mt_walk.hkx · losing by 300│   • Heavy Armor    │
 │                 │   #1 +0   Walking Overhaul   │   • Shield         │
-│                 │   #2 −300 (you)              │                    │
-│  ─────          │                              │ EXCLUDED           │
+│                 │   #2 −300 (you) → set to     │                    │
+│  ─────          │      2,099,200,579 to win    │ EXCLUDED           │
 │  Details        │ [Move to Top] [Set Exact…]   │   ✗ Helmet         │
 │  (for selection)│                              │                    │
 └─────────────────┴──────────────────────────────┴────────────────────┘
 ```
 
-### 7.2 Top bar
+### 7.2 Top bar — Unified search
 
-A single filter input with an **Advanced…** button, plus a **Refresh** button (🔄) on the far right. The text input accepts simple expressions like `IsFemale AND IsInCombat`. The Advanced button opens a modal filter builder (see §7.7). Filter state applies to the left tree: matching submods are shown normally; non-matching submods are dimmed but still visible. An empty filter shows everything normally.
+The top bar contains a **unified search input**, an **Advanced…** button, and a **Refresh** button (🔄).
 
-The Refresh button discards the in-memory model and re-scans the entire VFS (see §6.3 step 6). Use after making changes in OAR's in-game UI, enabling/disabling mods in MO2, or manually editing config files.
+The search input is the primary interaction point for the core workflow. It operates in two modes:
+
+**Name search (default mode):** Type any text and the search fuzzy-matches against mod names, submod names, replacer names, and animation filenames. Results are shown as filtered highlights in the tree — matching nodes are shown normally, non-matching are dimmed. If the match is an animation filename, the tree highlights every submod that provides that animation, giving the user an animation-based entry point into the workflow.
+
+Examples:
+- `Female Combat` → highlights the "Female Combat Pack" mod node and all its children
+- `walkforward` → highlights every submod across all mods that provides `mt_walkforward.hkx`
+- `heavy` → highlights submods named "heavy" across all mods
+
+**Condition filter mode:** Triggered by typing a recognized condition type name (autocomplete assists) or by prefixing with `condition:`. Uses the structural-presence semantics described in §7.6. Example: `condition: IsFemale AND IsInCombat` or just `IsFemale AND IsInCombat` (detected by the presence of `AND`/`OR`/`NOT` keywords).
+
+The **Advanced…** button opens the modal condition filter builder (§7.7) — this is a secondary interaction for cross-mod auditing, not the primary workflow.
+
+The **Refresh** button (🔄) discards the in-memory model and re-scans the entire VFS (see §6.3 step 6). Use after making changes in OAR's in-game UI, enabling/disabling mods in MO2, or manually editing config files.
+
+An empty search bar shows everything normally. The search bar has keyboard focus on launch (`Ctrl+F` also focuses it from anywhere in the app).
 
 ### 7.3 Left column — Tree + Details
 
@@ -294,6 +312,7 @@ The Refresh button discards the in-memory model and re-scans the entire VFS (see
 - Three levels: Mod → Replacer → Submod
 - Sort order: Mod alphabetical (OAR-native), Replacer alphabetical, Submod priority descending (OAR-native)
 - Sort toggle at the top of the panel: `Submods: [Priority] [Name]`, default Priority. Only applies to the submod level; mod and replacer levels have fixed sort.
+- **Auto-expand single replacers:** when a mod has only one replacer, the replacer node is auto-expanded (no extra click for the common case). Multi-replacer mods start collapsed as normal.
 - Each row is one line: a status icon (✓ enabled, ⚠ warning, ✗ disabled) and the display name.
 - Selection fires signals that update the Details panel, the center pane, and the right pane.
 
@@ -338,13 +357,15 @@ The Refresh button discards the in-memory model and re-scans the entire VFS (see
 One section per animation file provided by the currently selected submod (or by everything in scope, if a replacer or mod is selected).
 
 - Sections are expandable, default expanded. `▾` / `▸` toggle state per section.
-- Each section header shows: animation filename, competitor count, status (`you're #1` / `losing by N` / `losing by N to Mod X`).
+- Each section header shows: animation filename, competitor count, status (`you're #1` / `losing by N · set to X to win`). The "set to X to win" value is `max(competitor_priorities) + 1` — the same value Move to Top would compute. This directly answers the user story question ("what priority do I need to set?") without requiring any mental arithmetic or clicking.
 - Each competitor row: rank badge + priority number column + owner.
   - Rank badge: `#1` in green for top, `#2`+ in grey, losing rows get a red background.
   - `(you)` marker on the selected submod's rows.
   - Number column: single column, width depends on mode. Relative mode: 80px delta column (`+0`, `−70`, `−300`). Absolute mode: 140px right-aligned tabular-nums absolute column (`2,099,200,278`). **Toggling hides the other column entirely** — it is not shown dimmed.
 - Toolbar at the top of the pane: `[animation filter text input]`, `[Relative | Absolute]` segmented toggle, `[Collapse winning]` button.
 - Action buttons per scope: `[Move to Top]` at submod / replacer / mod levels; `[Set Exact…]` at submod only; `[Shift to Priority N…]` at replacer / mod.
+
+**Post-action feedback:** After any priority mutation (Move to Top, Set Exact, Shift), the stacks refresh from the in-memory model immediately. Every affected section header updates (e.g. `losing by 300` → `you're #1`). A brief inline toast appears at the top of the pane: *"Priority updated — you're now #1 in N stacks. Changes take effect the next time Skyrim loads this animation."* The toast auto-dismisses after 5 seconds. The "all stacks show #1 after move_to_top" state is an explicit test postcondition (§11).
 
 ### 7.5 Right pane — Conditions Detail
 
@@ -360,9 +381,9 @@ Read-only display of the currently focused competitor's condition tree.
 
 **Formatter validation requirement:** During the first implementation milestone, the formatter must be tested against real-world `config.json` files from at least 10 popular OAR mods on Nexus. If the fallback rate (trees too complex for three-bucket rendering) exceeds 30%, the formatted view should be replaced with a simple indented-tree display that doesn't attempt to classify. The three-bucket model is a hypothesis about real-world condition trees — it must be validated before committing to the UX.
 
-### 7.6 Filter text bar (simple)
+### 7.6 Condition filter mode (within unified search)
 
-Accepts a simple boolean expression like `IsFemale AND IsInCombat AND NOT IsWearingHelmet`. Parsed by a small hand-written expression parser. Semantics:
+When the unified search bar (§7.2) detects condition filter syntax (presence of `AND`/`OR`/`NOT` keywords, or `condition:` prefix), it switches to condition filter mode. Accepts simple boolean expressions like `IsFemale AND IsInCombat AND NOT IsWearingHelmet`. Parsed by a small hand-written expression parser. Semantics:
 
 - `IsFemale` → matches submods where `IsFemale` ∈ `condition_types_present`
 - `NOT IsWearingHelmet` → matches submods where `IsWearingHelmet` ∉ `condition_types_present`
@@ -370,7 +391,7 @@ Accepts a simple boolean expression like `IsFemale AND IsInCombat AND NOT IsWear
 
 No parentheses support in the text bar — users who want grouping use Advanced… (or accept that the filter is a flat check).
 
-**User-visible help text** (displayed as a tooltip on the filter bar): *"Filters match submods that mention a condition type anywhere in their condition tree, regardless of whether the condition is required, optional, or negated. For example, 'IsFemale' will match both submods that require females and submods that exclude females."*
+**User-visible help text** (displayed as a tooltip when condition mode activates): *"Condition filter: matches submods that mention a condition type anywhere in their condition tree, regardless of whether the condition is required, optional, or negated. For example, 'IsFemale' will match both submods that require females and submods that exclude females."*
 
 ### 7.7 Advanced filter builder
 
@@ -466,7 +487,7 @@ Stored at `<MO2 instance root>/oar-priority-manager/config.json`. One config per
 - `submod_sort`: "priority" | "name"
 - `window_geometry`: serialized Qt geometry
 - `splitter_positions`: for the tree/details divider and the three-pane splitter
-- `filter_history`: recent filter expressions
+- `search_history`: recent search/filter expressions
 - `last_selected_path`: tree path of the last selected node
 
 ### 8.3.1 MO2 instance root detection
@@ -561,3 +582,41 @@ Items 1, 3, and 4 from the original list have been resolved in the spec (see §8
 - Override provenance: tool-written `user.json` files are distinguishable from third-party writes via `_oarPriorityManager` metadata — verified by round-trip tests.
 - No `conflict_engine.py`. No semantic condition analysis. No SAT solver. No drift into the attempt-1 / attempt-2 traps.
 - Nexus Mods upload scan does not flag the packaged binary (verified via a test upload before the first public release).
+
+## 15. Feature priority tiers
+
+Features are tiered by how directly they serve the core user story (§2.1). Implementation planning should sequence Tier 1 first. Tier 2 features are valuable but deferrable if time is constrained.
+
+### Tier 1 — Primary workflow ("what priority do I need to set so it plays?")
+
+These features form the minimum path from "I added a mod" to "I fixed it":
+
+- **Unified search bar** with name + animation fuzzy match (§7.2) — the user's entry point
+- **Tree with Mod → Replacer → Submod hierarchy** (§7.3), including auto-expand for single-replacer mods
+- **Priority stacks display** with rank badge, delta/absolute column, `(you)` marker, losing-row highlight (§7.4)
+- **Target priority on losing rows** ("set to X to win") (§7.4) — directly answers the user story question
+- **Move to Top** at all scopes (§6.2) — the one-click fix
+- **Set Exact Priority** at submod scope (§6.2) — the manual fix
+- **Relative/Absolute toggle** with complete column swap (§7.4)
+- **MO2 Overwrite persistence** with round-trip preservation (§8.1)
+- **Override provenance detection** (§8.1.1) — prevents silent divergence
+- **Refresh button** (§7.2) — re-scan after external changes
+- **Instance detection via `--mods-path`** (§8.3.1) — launch reliability
+- **Post-action confirmation toast** (§7.4) — user confidence that the change worked
+- **Details panel: basic fields** — name, priority, MO2 mod source, enabled/disabled badge, overridden badge (§7.3)
+- **Error handling: load with warnings** (§9) — don't block the user from seeing anything
+
+### Tier 2 — Secondary workflows (cross-mod auditing, batch operations, deep inspection)
+
+These serve adjacent use cases and power users:
+
+- **Condition filter** (text bar condition mode + Advanced builder) (§7.6, §7.7) — cross-mod condition auditing
+- **Formatted condition display** (REQUIRED / ONE OF / EXCLUDED) (§7.5) — understanding competitor conditions
+- **Raw JSON condition display** (§7.5) — power-user deep inspection
+- **Shift to Priority N** at replacer / mod scope (§6.2) — batch rebalancing
+- **Clear Overrides** (§8.2) — undo/housekeeping
+- **Collapse-winning button** (§7.4) — noise reduction for large stacks
+- **Animation filter** in center pane (§7.4) — noise reduction within a submod
+- **Submod sort toggle** (Priority / Name) (§7.3) — alternative tree view
+- **Details panel: extended fields** — description, filesystem path, animation count, condition summary, override source (§7.3)
+- **Scan issues log pane** (§7.8) — debugging parse failures

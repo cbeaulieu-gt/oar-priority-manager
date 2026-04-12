@@ -125,8 +125,13 @@ def _make_competitor_row(
     btn = QPushButton()
     btn.setFlat(True)
 
-    # Red background for the row we are losing to (issue #34 spec §7.4)
-    bg = "background: #4a2020;" if is_losing_row else ""
+    # Red background for losing row; blue tint for the "you" row (issues #34, #72)
+    if is_losing_row:
+        bg = "background: #4a2020;"
+    elif is_you:
+        bg = "background: #1a2a3a;"
+    else:
+        bg = ""
     btn.setStyleSheet(
         f"QPushButton {{ text-align: left; padding: 1px 2px; {bg} }}"
         "QPushButton:hover { background: rgba(255,255,255,0.05); }"

@@ -11,7 +11,7 @@ Issues addressed:
 
 from __future__ import annotations
 
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import Qt, QTimer, Signal
 from PySide6.QtWidgets import (
     QFrame,
     QHBoxLayout,
@@ -214,6 +214,16 @@ class StacksPanel(QWidget):
         toolbar.addStretch()
         layout.addWidget(toolbar_widget)
 
+        # ---- Toast notification (issue #37, spec §7.4) ----
+        self._toast = QLabel()
+        self._toast.setContentsMargins(8, 4, 8, 4)
+        self._toast.setStyleSheet(
+            "background: #1a3a1a; color: #4a9; padding: 4px 8px; border-radius: 4px;"
+        )
+        self._toast.setWordWrap(True)
+        self._toast.hide()
+        layout.addWidget(self._toast)
+
         # ---- Header label ----
         self._header = QLabel("Select a submod to see priority stacks.")
         self._header.setContentsMargins(4, 0, 4, 4)
@@ -236,9 +246,30 @@ class StacksPanel(QWidget):
     # ------------------------------------------------------------------
 
     def update_selection(self, submod: SubMod | None) -> None:
-        """Update stacks display for the selected submod."""
+        """Update stacks display for the selected submod.
+
+        Disables action buttons when the submod has warnings (spec §9) or
+        when no submod is selected.
+        """
         self._current_submod = submod
+        # Disable action buttons when submod has warnings (spec §9)
+        has_warnings = submod.has_warnings if submod else True
+        enabled = not has_warnings and submod is not None
+        self._move_to_top_btn.setEnabled(enabled)
+        self._set_exact_btn.setEnabled(enabled)
+        self._move_rep_btn.setEnabled(enabled)
+        self._move_mod_btn.setEnabled(enabled)
         self._refresh_display()
+
+    def show_toast(self, message: str) -> None:
+        """Show a brief inline toast message that auto-dismisses after 5 seconds.
+
+        Args:
+            message: The text to display in the toast notification.
+        """
+        self._toast.setText(message)
+        self._toast.show()
+        QTimer.singleShot(5000, self._toast.hide)
 
     def set_relative_mode(self, relative: bool) -> None:
         """Switch between relative (delta) and absolute priority display."""
@@ -385,7 +416,11 @@ class StacksPanel(QWidget):
     # ------------------------------------------------------------------
 
     def _build_action_bar(self) -> QWidget:
-        """Build Move to Top / Set Exact action buttons."""
+        """Build Move to Top / Set Exact / scope-aware action buttons.
+
+        Includes three Move to Top variants (submod, replacer, mod scope) per
+        spec §7.8 and issue #39.
+        """
         bar = QWidget()
         layout = QHBoxLayout(bar)
         layout.setContentsMargins(4, 4, 4, 4)
@@ -399,6 +434,23 @@ class StacksPanel(QWidget):
         self._set_exact_btn = QPushButton("Set Exact…")
         self._set_exact_btn.clicked.connect(self._on_set_exact)
         layout.addWidget(self._set_exact_btn)
+
+        # Scope-aware Move to Top variants (issue #39)
+        self._move_rep_btn = QPushButton("Move Replacer to Top")
+        self._move_rep_btn.clicked.connect(
+            lambda: self.action_triggered.emit(
+                "move_to_top_replacer", self._current_submod, None
+            )
+        )
+        layout.addWidget(self._move_rep_btn)
+
+        self._move_mod_btn = QPushButton("Move Mod to Top")
+        self._move_mod_btn.clicked.connect(
+            lambda: self.action_triggered.emit(
+                "move_to_top_mod", self._current_submod, None
+            )
+        )
+        layout.addWidget(self._move_mod_btn)
 
         layout.addStretch()
         return bar

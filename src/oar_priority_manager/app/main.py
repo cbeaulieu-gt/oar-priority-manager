@@ -122,6 +122,7 @@ def main(argv: list[str] | None = None) -> int:
     )
 
     exit_code = app.exec()
+    window.capture_config()
     save_config(app_config, config_path)
     return exit_code
 

@@ -55,6 +55,14 @@ The critical lesson from both: **condition semantics is a trap.** This design ex
 - **Animation file editing or generation.** The tool never touches `.hkx` files.
 - **Managing non-OAR animation replacement systems (DAR, etc.).** Out of scope; OAR-only.
 
+### 3.3 Architectural enforcement of non-goals
+
+Stated non-goals did not prevent scope creep in attempts 1 and 2. This attempt includes structural guardrails:
+
+- **Serializer allowlist.** `core/serializer.py` maintains an explicit allowlist of mutable fields: `["priority"]`. Before writing a `raw_dict`, the serializer compares it against the original read and raises an exception if any field outside the allowlist has been modified. This makes condition editing, disable toggling, or any other non-priority mutation a code-breaking action — not just a social norm.
+- **Condition tree is opaque for mutation purposes.** The `conditions` field on `SubMod` is read-only at the type level. No module in the codebase should accept a `SubMod` and return a modified condition tree. The filter engine reads the tree; the conditions panel displays it; nothing writes to it.
+- **No `conflict_engine.py`.** This filename is explicitly banned. If a module with this name (or equivalent semantic-analysis responsibilities) appears in the codebase, it is a scope violation to be reverted, not a feature to be reviewed.
+
 ## 4. Background: how OAR priority works
 
 Verified from OAR source (`src/ReplacerMods.cpp::EvaluateConditionsAndGetReplacementAnimation()`):
@@ -97,12 +105,16 @@ SubMod:
     disabled: bool
     config_path: Path        # Absolute path to the source config.json
     override_source: Enum    # SOURCE | USER_JSON | OVERWRITE
+    override_is_ours: bool   # True if Overwrite user.json has _oarPriorityManager metadata
     raw_dict: dict           # Complete round-trip-preserved config contents
     animations: list[str]    # Lowercased .hkx filenames (from anim_scanner)
     conditions: dict         # Full condition tree (read-only; for filter + display)
-    condition_types: set[str]  # Flat set of all condition type names appearing in the tree
+    condition_types_present: set[str]   # All condition type names appearing anywhere in the tree
+    condition_types_negated: set[str]   # Condition type names appearing inside NOT groups or with negated=true
     warnings: list[str]      # Parse/validation warnings; non-empty blocks edits
 ```
+
+**Note on `condition_types_present` vs `condition_types_negated`:** A condition type can appear in both sets simultaneously (e.g. `IsFemale` required at the top level AND `IsFemale` negated inside a sub-group). The filter engine uses these two sets independently — see §6.2 and §7.6 for precise semantics.
 
 ### 5.3 Override precedence
 
@@ -170,17 +182,28 @@ Approximately **70% of core code is salvaged from attempt 2**, unchanged or with
 
 **`core/anim_scanner.py`** — Cross-mod scan of every submod's animation files, including `overrideAnimationsFolder` redirection. Produces a `conflict_map: dict[str, list[SubMod]]` keyed by lowercased filename.
 
-**`core/serializer.py`** — Writes a `raw_dict` back to disk as JSON, preserving field order. Only the `priority` field is modified between read and write; every other field round-trips unchanged.
+**`core/serializer.py`** — Writes a `raw_dict` back to disk as JSON, preserving field order. Enforces a **mutable-field allowlist**: before writing, the serializer diffs the output `raw_dict` against the original read and raises `IllegalMutationError` if any field outside `["priority"]` has been modified. This is the architectural guardrail described in §3.3 — it makes non-priority mutations a hard failure, not a silent corruption. The serializer also injects a `_oarPriorityManager` metadata object (tool version + write timestamp) into every `user.json` it writes, used for override provenance detection (§8.1).
 
 **`core/override_manager.py`** — Computes the mirrored path in MO2 Overwrite for a given submod, creates parent directories, writes via `serializer.py`, and exposes a `clear_override()` operation. Never writes to source mod paths.
 
 **`core/priority_resolver.py`** *(new)* — Takes the conflict map from `anim_scanner` and produces an ordered `PriorityStack` per animation. Also exposes the three mutation operations:
 
-- `move_to_top(target, scope)` — scope is submod / replacer / mod. Sets priority to `max(competitor_priorities) + 1`. When the scope is replacer or mod, the operation is applied per-stack for every animation the submods in scope contribute to. Edge case: if `max + 1` would overflow `INT32_MAX`, the operation fails with a user-visible error and no write is performed.
-- `set_exact(submod, priority)` — submod-level only.
-- `shift(scope, floor_priority)` — scope is replacer or mod. For the set of submods in scope, `new_priority = floor_priority + (old_priority - min(old_priorities))`.
+- `move_to_top(target, scope)` — scope is submod / replacer / mod.
+  - **Submod scope:** sets `priority = max(competitor_priorities_across_all_stacks) + 1`. Simple: one submod, one new value.
+  - **Replacer / mod scope:** preserves relative ordering among the in-scope submods. Algorithm: find `global_max` = the highest competitor priority across all stacks that any in-scope submod participates in. Then apply a floor-anchored shift: `new_priority = (global_max + 1) + (old_priority - min(old_priorities_in_scope))`. This ensures every in-scope submod is above all external competitors, while their internal priority gaps are preserved. The user's internal ordering stays intact.
+  - **Overflow guard:** if any computed priority would exceed `INT32_MAX`, the operation fails with a user-visible error and no write is performed.
+- `set_exact(submod, priority)` — submod-level only. Sets the priority to the exact value the user enters.
+- `shift(scope, floor_priority)` — scope is replacer or mod. For the set of submods in scope, `new_priority = floor_priority + (old_priority - min(old_priorities_in_scope))`. The floor is computed from the minimum priority across all submods in the scope (per-mod minimum, not per-replacer). This preserves relative gaps between submods while anchoring the lowest to the user's specified floor.
 
-**`core/filter_engine.py`** *(new)* — Structural condition-presence filter. Walks each submod's condition tree once to produce a `set[str]` of condition type names that appear anywhere (respecting `negated` flags as a separate "hasn't" bucket). Queries against this set require zero semantic evaluation.
+**`core/filter_engine.py`** *(new)* — Structural condition-presence filter. Walks each submod's condition tree once to produce two sets per submod: `condition_types_present` (every condition type name that appears anywhere in the tree) and `condition_types_negated` (types appearing inside NOT groups or with `negated: true`). A type can appear in both sets simultaneously.
+
+Filter query semantics are intentionally simple and documented to the user:
+
+- `has IsFemale` → matches if `IsFemale` ∈ `condition_types_present`. This means *"the submod mentions IsFemale somewhere in its condition tree"* — it does **not** mean *"the submod applies to females."* A submod that excludes females (`IsFemale` inside a NOT group) also matches this filter.
+- `hasn't IsFemale` → matches if `IsFemale` ∉ `condition_types_present`. This means *"the submod never mentions IsFemale."*
+- The filter is structural presence-matching, not semantic evaluation. The UI text bar and Advanced builder both display a help tooltip: *"Filters match submods that mention a condition type, regardless of whether the condition is required, optional, or excluded."*
+
+This is a deliberate trade-off. Semantic filtering ("show me submods that apply to females") would require the condition evaluator that killed attempt 2. Structural filtering is tractable, and the results are useful for the primary workflow: finding which submods are involved with a given condition type, so the user can inspect and adjust priorities manually.
 
 **`core/tree_model.py`** *(new)* — Builds the left-tree hierarchy:
 
@@ -190,7 +213,7 @@ Approximately **70% of core code is salvaged from attempt 2**, unchanged or with
 
 **UI modules** — covered in §7.
 
-**`app/config.py`** — Tool's own config (Relative/Absolute toggle state, window geometry, sort toggle state, filter history). Stored as JSON at `<MO2 instance root>/oar-priority-manager/config.json`. The tool detects instance root by walking up from the mods path or reading `ModOrganizer.ini`.
+**`app/config.py`** — Tool's own config (Relative/Absolute toggle state, window geometry, sort toggle state, filter history). Stored as JSON at `<MO2 instance root>/oar-priority-manager/config.json`. Instance root detection uses the chain described in §8.3.1 (`--mods-path` CLI arg → CWD check → walk-up → manual picker).
 
 **`app/main.py`** — Entry point. Constructs the `QApplication` and `MainWindow`.
 
@@ -198,17 +221,21 @@ Approximately **70% of core code is salvaged from attempt 2**, unchanged or with
 
 ```
 1. Startup
-   └─ Detect MO2 instance root from running environment
+   └─ Parse CLI arguments (--mods-path is the primary instance detection mechanism)
+   └─ Detect MO2 instance root (see §8.3 for detection chain)
    └─ Load tool config from instance/oar-priority-manager/config.json
-2. Scan phase
+2. Scan phase (also triggered by Refresh button — see below)
    └─ scanner.py walks <instance>/mods/*/
    └─ For each candidate submod, parser.py reads config.json
        + Overwrite/user.json override layer
+   └─ For Overwrite user.json files, check for _oarPriorityManager metadata
+       to determine if the override was written by this tool (§8.1)
    └─ anim_scanner.py aggregates .hkx files across all submods
    └─ priority_resolver.py builds conflict_map and PriorityStack list
 3. Model construction
    └─ tree_model.py builds the left-tree hierarchy
-   └─ filter_engine.py builds the condition_types set per submod
+   └─ filter_engine.py builds condition_types_present and
+       condition_types_negated sets per submod
 4. UI phase
    └─ main_window.py constructs the three-pane layout
    └─ Signals wire user actions to resolver/override_manager
@@ -217,9 +244,15 @@ Approximately **70% of core code is salvaged from attempt 2**, unchanged or with
    └─ priority_resolver computes new priority value(s)
    └─ override_manager writes to MO2 Overwrite at mirrored path
    └─ tree/stacks refresh from in-memory state (no re-scan)
-6. Shutdown
+6. Refresh (user-triggered via toolbar button)
+   └─ Discards in-memory model, re-runs steps 2-4
+   └─ Needed after: using OAR's in-game UI, enabling/disabling mods
+       in MO2, manually editing config files, or any external change
+7. Shutdown
    └─ app/config.py writes tool config back to disk
 ```
+
+**Consistency guarantee:** The tool takes a VFS snapshot at launch (or on Refresh). All priority computations and displays are based on this snapshot. Changes made outside the tool — in OAR's in-game UI, in MO2's mod list, or by manual file editing — are not reflected until the user clicks Refresh or relaunches. No filesystem watching is implemented. This is consistent with the modding-tool UX convention (xEdit, zEdit, and BodySlide all work this way).
 
 ## 7. User interface
 
@@ -250,7 +283,9 @@ The main window uses a three-pane layout with a vertically split left column:
 
 ### 7.2 Top bar
 
-A single filter input with an **Advanced…** button. The text input accepts simple expressions like `IsFemale AND IsInCombat`. The Advanced button opens a modal filter builder (see §7.7). Filter state applies to the left tree: matching submods are shown normally; non-matching submods are dimmed but still visible. An empty filter shows everything normally.
+A single filter input with an **Advanced…** button, plus a **Refresh** button (🔄) on the far right. The text input accepts simple expressions like `IsFemale AND IsInCombat`. The Advanced button opens a modal filter builder (see §7.7). Filter state applies to the left tree: matching submods are shown normally; non-matching submods are dimmed but still visible. An empty filter shows everything normally.
+
+The Refresh button discards the in-memory model and re-scans the entire VFS (see §6.3 step 6). Use after making changes in OAR's in-game UI, enabling/disabling mods in MO2, or manually editing config files.
 
 ### 7.3 Left column — Tree + Details
 
@@ -323,9 +358,19 @@ Read-only display of the currently focused competitor's condition tree.
   This is a rendering heuristic, not a full condition evaluator. It handles the common case of flat top-level condition lists plus one level of grouping. For condition trees with deeper nesting (e.g. an OR group containing another AND group, or a negated OR), the formatter shows a note ("This condition tree has complex nesting — see Raw JSON for full structure") and the user can toggle to Raw JSON to see the original source. No attempt is made to simplify, normalize, or evaluate the tree.
 - **Raw JSON view** — pretty-printed source of the condition tree, read-only.
 
+**Formatter validation requirement:** During the first implementation milestone, the formatter must be tested against real-world `config.json` files from at least 10 popular OAR mods on Nexus. If the fallback rate (trees too complex for three-bucket rendering) exceeds 30%, the formatted view should be replaced with a simple indented-tree display that doesn't attempt to classify. The three-bucket model is a hypothesis about real-world condition trees — it must be validated before committing to the UX.
+
 ### 7.6 Filter text bar (simple)
 
-Accepts a simple boolean expression like `IsFemale AND IsInCombat AND NOT IsWearingHelmet`. Parsed by a small hand-written expression parser. Matches any submod whose `condition_types` set contains the required tokens and lacks the excluded tokens. No parentheses support in the text bar — users who want nesting use Advanced… (or accept that the filter is a flat check).
+Accepts a simple boolean expression like `IsFemale AND IsInCombat AND NOT IsWearingHelmet`. Parsed by a small hand-written expression parser. Semantics:
+
+- `IsFemale` → matches submods where `IsFemale` ∈ `condition_types_present`
+- `NOT IsWearingHelmet` → matches submods where `IsWearingHelmet` ∉ `condition_types_present`
+- `AND` combines terms: all must match
+
+No parentheses support in the text bar — users who want grouping use Advanced… (or accept that the filter is a flat check).
+
+**User-visible help text** (displayed as a tooltip on the filter bar): *"Filters match submods that mention a condition type anywhere in their condition tree, regardless of whether the condition is required, optional, or negated. For example, 'IsFemale' will match both submods that require females and submods that exclude females."*
 
 ### 7.7 Advanced filter builder
 
@@ -364,7 +409,50 @@ All priority changes are written to the MO2 Overwrite folder at a path that mirr
 
 The tool always writes `user.json` (not `config.json`) to the Overwrite folder. Because MO2's VFS merges the Overwrite layer on top of the source mod at the same relative path, OAR sees the tool-written `user.json` as if it lived inside the source mod folder — and OAR's native precedence (`user.json` overrides `config.json`) applies naturally at runtime. The tool's precedence model (§5.3) mirrors this: when reading an effective priority, the tool itself checks Overwrite before checking the source `user.json`, so it sees its own writes immediately without waiting for a re-scan.
 
-**Round-trip preservation.** The tool reads the full source `config.json` (or existing override), modifies only the `priority` field, and writes the complete structure back. All other fields — name, description, conditions, overrideAnimationsFolder, etc. — round-trip untouched. This is the `raw_dict` pattern from attempt 2 and is a hard correctness requirement: any field loss is a bug.
+### 8.1.1 Override provenance detection
+
+Every `user.json` the tool writes includes a `_oarPriorityManager` metadata object:
+
+```json
+{
+  "priority": 500,
+  "name": "heavy",
+  "_oarPriorityManager": {
+    "toolVersion": "1.0.0",
+    "writtenAt": "2026-04-11T14:30:00Z",
+    "previousPriority": 300
+  }
+}
+```
+
+On scan, the tool uses this metadata to distinguish its own overrides from third-party `user.json` files in Overwrite:
+
+- **Overwrite `user.json` with `_oarPriorityManager` metadata** → tool-written override. Shown as "OVERRIDDEN" in the details panel with the "was X" annotation derived from `previousPriority`.
+- **Overwrite `user.json` without metadata** → third-party override (written by OAR's in-game UI, another tool, or manual edit). Shown with a `⚠ EXTERNAL OVERRIDE` badge in the details panel. The tool can still read the priority from this file but warns the user that it didn't write it.
+- **Source-mod `user.json` with tool metadata** → the user copied an Overwrite file back into the source mod. Treated as a normal source-level override; metadata is ignored outside Overwrite.
+
+This prevents the silent-override problem identified in review: if the user changes a priority in OAR's in-game UI after the tool wrote an override, the Overwrite version still wins at runtime — but the tool now surfaces this divergence via the EXTERNAL OVERRIDE badge, prompting the user to either clear the tool's override or re-apply it.
+
+### 8.1.2 Round-trip preservation
+
+The tool reads the full source `config.json` (or existing override), modifies only the `priority` field (and adds/updates the `_oarPriorityManager` metadata), and writes the complete structure back. All other fields — name, description, conditions, overrideAnimationsFolder, etc. — round-trip untouched. The serializer's mutable-field allowlist (§3.3, §6.2) enforces this at the code level.
+
+**Round-trip precision:** round-trip means **semantically equivalent JSON**, not byte-identical output. Acceptable mutations on write:
+
+- Whitespace and indentation may change (the tool always writes with consistent 2-space indentation)
+- Trailing commas are removed (the lenient parser strips them on read; they are not restored on write)
+- Key ordering within objects is preserved (Python 3.7+ dicts are insertion-ordered; `json.dumps` with `sort_keys=False`)
+- Numeric precision is preserved (integers stay integers; floats keep their precision)
+- No keys are added, removed, or renamed — except `_oarPriorityManager` which is the tool's own metadata
+- No values are modified — except `priority` which is the tool's designated mutable field
+
+**Unacceptable mutations (test failures):**
+
+- Any key present in the original that is absent in the output
+- Any value that differs from the original (except `priority` and `_oarPriorityManager`)
+- Structural changes (array reordering, object nesting changes)
+
+This is the `raw_dict` pattern from attempt 2 and is a hard correctness requirement.
 
 ### 8.2 Clear Overrides
 
@@ -381,7 +469,19 @@ Stored at `<MO2 instance root>/oar-priority-manager/config.json`. One config per
 - `filter_history`: recent filter expressions
 - `last_selected_path`: tree path of the last selected node
 
-The tool detects the MO2 instance root by walking up from the running mods directory, or by reading `ModOrganizer.ini` which lives at the instance root.
+### 8.3.1 MO2 instance root detection
+
+The tool must know the MO2 instance root to find `mods/`, `overwrite/`, and to store its own config. Detection uses a strict fallback chain:
+
+1. **`--mods-path <path>` CLI argument** *(primary, recommended)*. MO2 Executables support passing arguments to tools. The user configures the executable entry with `--mods-path "%BASE_DIR%/mods"` (MO2 expands `%BASE_DIR%` to the instance root). This is deterministic, portable-mode-safe, and documented in the tool's README as the recommended setup. The instance root is inferred as the parent of the mods path.
+
+2. **CWD contains `ModOrganizer.ini`** *(fallback for portable MO2)*. If `--mods-path` is not provided, check if the current working directory (set by MO2 when launching executables) contains `ModOrganizer.ini`. If so, CWD is the instance root.
+
+3. **Walk up from CWD looking for `mods/` + `ModOrganizer.ini`** *(fallback for nested tool directories)*. Check each parent directory of CWD for the presence of both `mods/` and `ModOrganizer.ini`. Stop at the drive root.
+
+4. **Hard error.** If none of the above succeed, show a modal dialog: *"Could not detect MO2 instance. Please configure the executable with --mods-path or run the tool from within your MO2 instance directory."* The dialog includes a directory picker as a last-resort manual override. The chosen path is saved to a global (non-instance) config at `%APPDATA%/oar-priority-manager/last-instance.json` so the user doesn't have to pick again.
+
+This chain handles both MO2 portable mode (instance root = MO2 folder) and MO2 installed mode (instance root = `%LOCALAPPDATA%/ModOrganizer/<name>/`). The `--mods-path` argument sidesteps all ambiguity and is the only method documented in the setup instructions.
 
 ## 9. Error handling
 
@@ -418,8 +518,10 @@ The tool detects the MO2 instance root by walking up from the running mods direc
 ### 11.1 Approach
 
 - **Unit tests** using `pytest`. Target: 100% coverage of `core/` modules.
-- **Fixture-based tests.** `tests/fixtures/mods/` contains 5-10 fake OAR mods with known-good, malformed, and edge-case `config.json` files. Scanner, parser, and anim_scanner tests run against this directory as if it were a real MO2 mods folder.
-- **Golden-file round-trip tests for the serializer.** For each fixture config, load → modify priority → serialize → re-load → diff. Any field loss between the original and re-loaded dict fails the test.
+- **Fixture-based tests.** `tests/fixtures/mods/` contains two categories of fixtures:
+  - **Synthetic fixtures** (5-10 fake OAR mods): known-good, malformed, and edge-case `config.json` files covering every warning path in the parser. Created by the developer.
+  - **Real-world fixtures** (10+ files): `config.json` files harvested from popular OAR mods on Nexus (with mod author attribution in the fixture directory's README). These cover undocumented fields, non-standard formatting, large condition trees, and fields added by newer OAR versions that the developer has never seen. Scanner, parser, and anim_scanner tests run against both categories.
+- **Golden-file round-trip tests for the serializer.** For each fixture config (synthetic and real-world), load → modify priority → serialize → re-load → diff. The diff checks the precision rules defined in §8.1.2: no key loss, no value changes except `priority` and `_oarPriorityManager`, no structural changes. Any violation fails the test.
 - **UI smoke tests** via `pytest-qt`. Scope: construct the main window, load fixtures, click a small set of interactions (expand section, toggle Relative/Absolute, open Advanced filter, select tree item), verify no crashes or exceptions. Not full visual regression.
 - **TDD is mandatory for the core engine.** Every function in `priority_resolver.py`, `filter_engine.py`, and `override_manager.py` is written test-first. TDD is best-effort for UI modules.
 - **No end-to-end Skyrim launch tests.** Out of scope; too expensive for the payoff.
@@ -443,18 +545,19 @@ Sub-agents asked to verify changes run the **full** `pytest` suite, not only the
 
 ## 13. Open questions to be addressed during implementation planning
 
-These are not blocking for spec approval, but should be resolved in the implementation plan:
+Items 1, 3, and 4 from the original list have been resolved in the spec (see §8.3.1, §6.2, and §6.3 respectively). Remaining items:
 
-1. **Instance root detection fallback order.** Primary is walking up from the mods path. What's the fallback if that's ambiguous (e.g. user ran the tool from a weird working directory)?
-2. **Animation filter scope when a replacer or mod is selected.** Should the center pane show every animation from every submod in scope, or only the "most interesting" ones (e.g. those where the user is losing)?
-3. **Shift to Priority N — scope semantics.** When the user shifts a whole mod, is the floor applied to the minimum priority across all submods in the mod, or to each replacer independently? (The locked floor-anchored formula still needs this clarification.)
-4. **Concurrent modification detection.** If the user edits `user.json` in OAR's in-game UI while the tool is running, the tool's in-memory model goes stale. Does the tool offer a Refresh button, or should it watch the filesystem?
-5. **Performance target.** For a modlist with ~500 OAR mods totaling ~50,000 submods, is the scan fast enough to run on every tool launch, or does the tool need an on-disk cache?
+1. **Animation filter scope when a replacer or mod is selected.** Should the center pane show every animation from every submod in scope, or only the "most interesting" ones (e.g. those where the user is losing)?
+2. **Performance target.** For a modlist with ~500 OAR mods totaling ~50,000 submods, is the scan fast enough to run on every tool launch, or does the tool need an on-disk cache? Profile against a real large modlist during the first implementation milestone. If scan exceeds 10 seconds, add a progress bar + background thread with progressive UI population. The architecture supports this (scan is sequential; UI construction can start on partial data).
+3. **VFS file shadowing.** If two MO2 mods provide the same `.hkx` file at the exact same relative OAR submod path, MO2 mod order determines which is visible to OAR. The tool does not resolve VFS shadows — it treats all discovered animation files as real competitors. This is a **known limitation** for the rare edge case where two mods use identical replacer and submod folder names. In practice, OAR submod paths are unique per mod author, so false competitors from VFS shadowing are extremely uncommon. If a user reports this edge case, the fix is to add MO2 load-order awareness to the anim_scanner, but this is not MVP scope.
+4. **Condition formatter fallback rate.** The three-bucket formatted view (§7.5) must be validated against real-world condition trees during the first milestone. If the fallback rate exceeds 30%, replace with a simpler indented-tree display.
 
 ## 14. Success criteria
 
 - User can answer *"what priority do I need to set to win"* in under 30 seconds from tool launch.
 - Zero source mod files are modified by the tool under any circumstance.
-- Every field in a source `config.json` round-trips identically through the override writer — verified by golden-file tests on all fixtures.
+- Every field in a source `config.json` round-trips per the precision rules in §8.1.2 — verified by golden-file tests on all fixtures (synthetic and real-world).
+- Serializer allowlist (§3.3) rejects any attempt to mutate a non-priority field — verified by a dedicated test that modifies `conditions` in a `raw_dict` and asserts `IllegalMutationError`.
+- Override provenance: tool-written `user.json` files are distinguishable from third-party writes via `_oarPriorityManager` metadata — verified by round-trip tests.
 - No `conflict_engine.py`. No semantic condition analysis. No SAT solver. No drift into the attempt-1 / attempt-2 traps.
 - Nexus Mods upload scan does not flag the packaged binary (verified via a test upload before the first public release).

@@ -8,6 +8,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from oar_priority_manager.core.anim_scanner import (
+    _discover_variant_folders,
     _extract_replaced_animations,
     build_conflict_map,
     scan_animations,
@@ -261,6 +262,120 @@ class TestScanAnimations:
             "unique_female.hkx",
             "unique_male.hkx",
         ]
+
+    def test_discovers_implicit_variant_folders(self, tmp_path: Path):
+        """Subdirectories starting with _variants_ are discovered without any
+        replacementAnimDatas entry in config — the stripped, lowercased name
+        plus .hkx is added to the animations list."""
+        submod_dir = tmp_path / "relax_sneak_melee_right_dagger"
+        submod_dir.mkdir()
+        (submod_dir / "_variants_sneakmtidle").mkdir()
+        (submod_dir / "_variants_1hm_idle").mkdir()
+
+        sm = _make_submod(config_path=submod_dir / "config.json")
+        scan_animations([sm])
+        assert sorted(sm.animations) == ["1hm_idle.hkx", "sneakmtidle.hkx"]
+
+    def test_variant_folders_merged_with_replacement_anim_data(
+        self, tmp_path: Path
+    ):
+        """When a submod has both implicit _variants_* folders AND
+        replacementAnimDatas entries, the results are merged and deduplicated
+        via set union — an animation found via both paths appears only once."""
+        submod_dir = tmp_path / "sub1"
+        submod_dir.mkdir()
+        # sneakmtidle appears via both routes; config_only appears only in config.
+        (submod_dir / "_variants_sneakmtidle").mkdir()
+        (submod_dir / "_variants_filesystem_only").mkdir()
+
+        raw = {
+            "name": "sub1",
+            "priority": 100,
+            "replacementAnimDatas": [
+                {
+                    "projectName": "DefaultMale",
+                    "path": "data\\meshes\\OAR\\mod\\_variants_sneakmtidle",
+                    "variants": [{"filename": "replacement.hkx"}],
+                },
+                {
+                    "projectName": "DefaultMale",
+                    "path": "data\\meshes\\OAR\\mod\\_variants_config_only",
+                    "variants": [{"filename": "replacement.hkx"}],
+                },
+            ],
+        }
+        sm = _make_submod(config_path=submod_dir / "config.json", raw_dict=raw)
+        scan_animations([sm])
+        assert sm.animations == [
+            "config_only.hkx",
+            "filesystem_only.hkx",
+            "sneakmtidle.hkx",
+        ]
+
+    def test_variant_folders_case_insensitive(self, tmp_path: Path):
+        """Folder names like _variants_Tor_1HMPose are lowercased to
+        tor_1hmpose.hkx."""
+        submod_dir = tmp_path / "sub1"
+        submod_dir.mkdir()
+        (submod_dir / "_variants_Tor_1HMPose").mkdir()
+
+        sm = _make_submod(config_path=submod_dir / "config.json")
+        scan_animations([sm])
+        assert sm.animations == ["tor_1hmpose.hkx"]
+
+    def test_non_variant_folders_ignored(self, tmp_path: Path):
+        """Subdirectories that do NOT start with _variants_ are not included."""
+        submod_dir = tmp_path / "sub1"
+        submod_dir.mkdir()
+        (submod_dir / "some_other_folder").mkdir()
+        (submod_dir / "meshes").mkdir()
+        (submod_dir / "_not_variants_idle").mkdir()
+        # Only this one should be discovered.
+        (submod_dir / "_variants_sneakmtidle").mkdir()
+
+        sm = _make_submod(config_path=submod_dir / "config.json")
+        scan_animations([sm])
+        assert sm.animations == ["sneakmtidle.hkx"]
+
+
+class TestDiscoverVariantFolders:
+    """Unit tests for the _discover_variant_folders helper."""
+
+    def test_returns_empty_set_for_nonexistent_dir(self, tmp_path: Path):
+        """OSError from a missing directory is caught; empty set returned."""
+        result = _discover_variant_folders(tmp_path / "does_not_exist")
+        assert result == set()
+
+    def test_empty_dir_returns_empty_set(self, tmp_path: Path):
+        assert _discover_variant_folders(tmp_path) == set()
+
+    def test_strips_prefix_and_appends_hkx(self, tmp_path: Path):
+        (tmp_path / "_variants_sneakmtidle").mkdir()
+        assert _discover_variant_folders(tmp_path) == {"sneakmtidle.hkx"}
+
+    def test_lowercases_name(self, tmp_path: Path):
+        (tmp_path / "_variants_MT_Idle").mkdir()
+        assert _discover_variant_folders(tmp_path) == {"mt_idle.hkx"}
+
+    def test_ignores_files_not_dirs(self, tmp_path: Path):
+        """A file named _variants_foo is not a variant folder and is ignored."""
+        (tmp_path / "_variants_sneakmtidle").touch()
+        assert _discover_variant_folders(tmp_path) == set()
+
+    def test_ignores_non_matching_dirs(self, tmp_path: Path):
+        (tmp_path / "meshes").mkdir()
+        (tmp_path / "_not_variants_idle").mkdir()
+        assert _discover_variant_folders(tmp_path) == set()
+
+    def test_multiple_variant_folders(self, tmp_path: Path):
+        (tmp_path / "_variants_sneakmtidle").mkdir()
+        (tmp_path / "_variants_1hm_idle").mkdir()
+        (tmp_path / "_variants_Tor_1HMPose").mkdir()
+        assert _discover_variant_folders(tmp_path) == {
+            "sneakmtidle.hkx",
+            "1hm_idle.hkx",
+            "tor_1hmpose.hkx",
+        }
 
 
 class TestExtractReplacedAnimations:

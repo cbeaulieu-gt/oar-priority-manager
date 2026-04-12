@@ -99,15 +99,52 @@ def _extract_replaced_animations(
     return filenames
 
 
+def _discover_variant_folders(submod_dir: Path) -> set[str]:
+    """Discover implicit OAR variant folders in a submod directory.
+
+    OAR auto-discovers subdirectories whose names start with ``_variants_``
+    inside a submod folder, without those directories needing to be declared
+    in config.json.  Each such directory implicitly overrides the vanilla
+    animation whose name matches the suffix after ``_variants_``.
+
+    Derivation rules for each matching subdirectory name:
+    - Strip the ``_variants_`` prefix.
+    - Lowercase the result.
+    - Append ``.hkx``.
+
+    Args:
+        submod_dir: The submod directory to scan (``config_path.parent``).
+
+    Returns:
+        A deduplicated set of lowercased derived animation filenames.
+        Returns an empty set on OSError (e.g. directory does not exist).
+    """
+    filenames: set[str] = set()
+    try:
+        for entry in submod_dir.iterdir():
+            if entry.is_dir() and entry.name.startswith("_variants_"):
+                name = entry.name[len("_variants_"):].lower()
+                if name:
+                    if not name.endswith(".hkx"):
+                        name += ".hkx"
+                    filenames.add(name)
+    except OSError:
+        pass
+    return filenames
+
+
 def scan_animations(submods: list[SubMod]) -> None:
     """Populate each SubMod's animations list with lowercased .hkx filenames.
 
-    Discovers animations from two sources and merges them:
+    Discovers animations from three sources and merges them:
 
     1. Filesystem: ``.hkx`` files found in the submod's animation directory
        (or ``overrideAnimationsFolder`` if set).
     2. Config JSON: filenames declared in ``replacementAnimDatas`` entries
        within the submod's ``raw_dict``.
+    3. Implicit variant folders: subdirectories starting with ``_variants_``
+       in the submod directory, discovered by convention (no config.json entry
+       required).
 
     Modifies submods in place.
 
@@ -129,7 +166,8 @@ def scan_animations(submods: list[SubMod]) -> None:
             hkx_files = set()
 
         config_anims = _extract_replaced_animations(sm.raw_dict)
-        sm.animations = sorted(hkx_files | config_anims)
+        variant_folder_anims = _discover_variant_folders(sm.config_path.parent)
+        sm.animations = sorted(hkx_files | config_anims | variant_folder_anims)
 
 
 def build_conflict_map(submods: list[SubMod]) -> dict[str, list[SubMod]]:

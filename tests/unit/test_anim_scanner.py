@@ -15,6 +15,8 @@ from oar_priority_manager.core.anim_scanner import (
 )
 from oar_priority_manager.core.models import OverrideSource, SubMod
 
+_OAR_PATH = "data\\meshes\\actors\\character\\animations\\OAR\\mod"
+
 
 def _make_submod(
     name: str = "sub1",
@@ -109,7 +111,7 @@ class TestScanAnimations:
             "replacementAnimDatas": [
                 {
                     "projectName": "DefaultMale",
-                    "path": "data\\meshes\\actors\\character\\animations\\OAR\\mod\\_variants_sneakmtidle",
+                    "path": f"{_OAR_PATH}\\_variants_sneakmtidle",
                     "variants": [
                         {"filename": "replacement1.hkx", "weight": 0.5},
                         {"filename": "replacement2.hkx", "disabled": True},
@@ -142,12 +144,12 @@ class TestScanAnimations:
             "replacementAnimDatas": [
                 {
                     "projectName": "DefaultMale",
-                    "path": "data\\meshes\\actors\\character\\animations\\OAR\\mod\\_variants_mt_idle",
+                    "path": f"{_OAR_PATH}\\_variants_mt_idle",
                     "variants": [{"filename": "replacement.hkx"}],
                 },
                 {
                     "projectName": "DefaultMale",
-                    "path": "data\\meshes\\actors\\character\\animations\\OAR\\mod\\_variants_config_only",
+                    "path": f"{_OAR_PATH}\\_variants_config_only",
                     "variants": [{"filename": "replacement.hkx"}],
                 },
             ],
@@ -175,12 +177,12 @@ class TestScanAnimations:
             "replacementAnimDatas": [
                 {
                     "projectName": "DefaultMale",
-                    "path": "data\\meshes\\actors\\character\\animations\\OAR\\mod\\_variants_RELAX10",
+                    "path": f"{_OAR_PATH}\\_variants_RELAX10",
                     "variants": [{"filename": "replacement.hkx"}],
                 },
                 {
                     "projectName": "DefaultMale",
-                    "path": "data\\meshes\\actors\\character\\animations\\OAR\\mod\\_variants_MT_Idle",
+                    "path": f"{_OAR_PATH}\\_variants_MT_Idle",
                     "variants": [{"filename": "replacement.hkx"}],
                 },
             ],
@@ -233,22 +235,22 @@ class TestScanAnimations:
             "replacementAnimDatas": [
                 {
                     "projectName": "DefaultMale",
-                    "path": "data\\meshes\\actors\\character\\animations\\OAR\\mod\\_variants_relax10",
+                    "path": f"{_OAR_PATH}\\_variants_relax10",
                     "variants": [{"filename": "male_replacement.hkx"}],
                 },
                 {
                     "projectName": "DefaultMale",
-                    "path": "data\\meshes\\actors\\character\\animations\\OAR\\mod\\_variants_unique_male",
+                    "path": f"{_OAR_PATH}\\_variants_unique_male",
                     "variants": [{"filename": "replacement.hkx"}],
                 },
                 {
                     "projectName": "DefaultFemale",
-                    "path": "data\\meshes\\actors\\character\\animations\\OAR\\mod\\_variants_relax10",
+                    "path": f"{_OAR_PATH}\\_variants_relax10",
                     "variants": [{"filename": "female_replacement.hkx"}],
                 },
                 {
                     "projectName": "DefaultFemale",
-                    "path": "data\\meshes\\actors\\character\\animations\\OAR\\mod\\_variants_unique_female",
+                    "path": f"{_OAR_PATH}\\_variants_unique_female",
                     "variants": [{"filename": "replacement.hkx"}],
                 },
             ],
@@ -398,7 +400,7 @@ class TestExtractReplacedAnimations:
         raw = {
             "replacementAnimDatas": [
                 {
-                    "path": "data\\meshes\\actors\\character\\animations\\OAR\\mod\\_variants_sneakmtidle",
+                    "path": f"{_OAR_PATH}\\_variants_sneakmtidle",
                     "variants": [{"filename": "replacement.hkx"}],
                 }
             ]
@@ -410,7 +412,7 @@ class TestExtractReplacedAnimations:
         raw = {
             "replacementAnimDatas": [
                 {
-                    "path": "data\\meshes\\actors\\character\\animations\\OAR\\mod\\_variants_1hm_idle",
+                    "path": f"{_OAR_PATH}\\_variants_1hm_idle",
                     "variants": [],
                 }
             ]

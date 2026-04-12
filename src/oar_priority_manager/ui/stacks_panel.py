@@ -28,7 +28,6 @@ from PySide6.QtWidgets import (
 
 from oar_priority_manager.core.models import SubMod
 
-
 # ---------------------------------------------------------------------------
 # Helper widget: collapsible stack section (issue #35)
 # ---------------------------------------------------------------------------

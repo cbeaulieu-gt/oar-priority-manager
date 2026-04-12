@@ -213,6 +213,13 @@ class DetailsPanel(QWidget):
         # Animation count
         lines.append(f"Animations: {len(submod.animations)} files")
 
+        # Config-only indicator (no animations — pure toggle/flag submod)
+        if submod.is_config_only:
+            lines.append(
+                "<span style='color:#6af'><b>CONFIG-ONLY</b>"
+                " \u2014 toggle flag, no animations to replace</span>"
+            )
+
         # Condition summary
         n_conditions = len(submod.conditions) if isinstance(submod.conditions, list) else (
             len(submod.conditions) if submod.conditions else 0

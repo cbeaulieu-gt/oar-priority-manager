@@ -7,7 +7,11 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from oar_priority_manager.core.anim_scanner import build_conflict_map, scan_animations
+from oar_priority_manager.core.anim_scanner import (
+    _extract_replacement_anim_data_filenames,
+    build_conflict_map,
+    scan_animations,
+)
 from oar_priority_manager.core.models import OverrideSource, SubMod
 
 
@@ -89,6 +93,183 @@ class TestScanAnimations:
         sm = _make_submod(config_path=submod_dir / "config.json")
         scan_animations([sm])
         assert sm.animations == []
+
+    def test_discovers_replacement_anim_data_variants(
+        self, tmp_path: Path
+    ):
+        """Animations in replacementAnimDatas are discovered even with no .hkx
+        files on the filesystem."""
+        submod_dir = tmp_path / "sub1"
+        submod_dir.mkdir()
+
+        raw = {
+            "name": "sub1",
+            "priority": 100,
+            "replacementAnimDatas": [
+                {
+                    "projectName": "DefaultMale",
+                    "path": "data\\meshes\\actors\\character",
+                    "variants": [
+                        {"filename": "relax10.hkx", "weight": 0.5},
+                        {"filename": "hmmm.hkx", "disabled": True},
+                    ],
+                }
+            ],
+        }
+        sm = _make_submod(
+            config_path=submod_dir / "config.json", raw_dict=raw
+        )
+        scan_animations([sm])
+        assert sm.animations == ["hmmm.hkx", "relax10.hkx"]
+
+    def test_replacement_anim_data_merged_with_filesystem(
+        self, tmp_path: Path
+    ):
+        """Filesystem .hkx files and replacementAnimDatas filenames are merged
+        and deduplicated."""
+        submod_dir = tmp_path / "sub1"
+        submod_dir.mkdir()
+        # relax10.hkx exists both on disk and in config — should appear once.
+        (submod_dir / "relax10.hkx").touch()
+        (submod_dir / "mt_idle.hkx").touch()
+
+        raw = {
+            "name": "sub1",
+            "priority": 100,
+            "replacementAnimDatas": [
+                {
+                    "projectName": "DefaultMale",
+                    "variants": [
+                        {"filename": "relax10.hkx"},
+                        {"filename": "config_only.hkx"},
+                    ],
+                }
+            ],
+        }
+        sm = _make_submod(
+            config_path=submod_dir / "config.json", raw_dict=raw
+        )
+        scan_animations([sm])
+        assert sm.animations == [
+            "config_only.hkx",
+            "mt_idle.hkx",
+            "relax10.hkx",
+        ]
+
+    def test_replacement_anim_data_case_insensitive(
+        self, tmp_path: Path
+    ):
+        """Variant filenames from config are normalised to lowercase."""
+        submod_dir = tmp_path / "sub1"
+        submod_dir.mkdir()
+
+        raw = {
+            "name": "sub1",
+            "priority": 100,
+            "replacementAnimDatas": [
+                {
+                    "projectName": "DefaultMale",
+                    "variants": [
+                        {"filename": "RELAX10.HKX"},
+                        {"filename": "MT_Idle.hkx"},
+                    ],
+                }
+            ],
+        }
+        sm = _make_submod(
+            config_path=submod_dir / "config.json", raw_dict=raw
+        )
+        scan_animations([sm])
+        assert sm.animations == ["mt_idle.hkx", "relax10.hkx"]
+
+    def test_replacement_anim_data_malformed_graceful(
+        self, tmp_path: Path
+    ):
+        """Missing variants key or missing filename key does not raise; result
+        is empty (or partial for valid entries)."""
+        submod_dir = tmp_path / "sub1"
+        submod_dir.mkdir()
+
+        raw = {
+            "name": "sub1",
+            "priority": 100,
+            "replacementAnimDatas": [
+                # Entry with no 'variants' key
+                {"projectName": "DefaultMale"},
+                # Entry with variants but a variant missing 'filename'
+                {
+                    "projectName": "DefaultFemale",
+                    "variants": [
+                        {"weight": 0.5},  # no filename
+                        None,             # not a dict
+                    ],
+                },
+                # Completely non-dict entry
+                "not_a_dict",
+            ],
+        }
+        sm = _make_submod(
+            config_path=submod_dir / "config.json", raw_dict=raw
+        )
+        # Should not raise and should produce no animations.
+        scan_animations([sm])
+        assert sm.animations == []
+
+    def test_replacement_anim_data_multiple_projects_deduplicated(
+        self, tmp_path: Path
+    ):
+        """Same filename appearing in both DefaultMale and DefaultFemale
+        entries is deduplicated to a single entry."""
+        submod_dir = tmp_path / "sub1"
+        submod_dir.mkdir()
+
+        raw = {
+            "name": "sub1",
+            "priority": 100,
+            "replacementAnimDatas": [
+                {
+                    "projectName": "DefaultMale",
+                    "variants": [
+                        {"filename": "relax10.hkx"},
+                        {"filename": "unique_male.hkx"},
+                    ],
+                },
+                {
+                    "projectName": "DefaultFemale",
+                    "variants": [
+                        {"filename": "relax10.hkx"},
+                        {"filename": "unique_female.hkx"},
+                    ],
+                },
+            ],
+        }
+        sm = _make_submod(
+            config_path=submod_dir / "config.json", raw_dict=raw
+        )
+        scan_animations([sm])
+        assert sm.animations == [
+            "relax10.hkx",
+            "unique_female.hkx",
+            "unique_male.hkx",
+        ]
+
+
+class TestExtractReplacementAnimDataFilenames:
+    """Unit tests for the _extract_replacement_anim_data_filenames helper."""
+
+    def test_empty_dict_returns_empty_set(self):
+        assert _extract_replacement_anim_data_filenames({}) == set()
+
+    def test_key_absent_returns_empty_set(self):
+        assert _extract_replacement_anim_data_filenames(
+            {"name": "sub1"}
+        ) == set()
+
+    def test_non_list_value_returns_empty_set(self):
+        """replacementAnimDatas that is not a list is ignored gracefully."""
+        assert _extract_replacement_anim_data_filenames(
+            {"replacementAnimDatas": "oops"}
+        ) == set()
 
 
 class TestBuildConflictMap:

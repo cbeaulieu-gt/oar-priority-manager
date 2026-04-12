@@ -41,24 +41,81 @@ def _get_animation_dir(submod: SubMod) -> Path:
     return submod_dir
 
 
+def _extract_replacement_anim_data_filenames(
+    raw_dict: dict,
+) -> set[str]:
+    """Extract animation filenames declared in replacementAnimDatas config.
+
+    OAR submods may declare animations via a ``replacementAnimDatas`` array
+    in their config JSON rather than placing loose .hkx files on disk.  Each
+    entry in the array may target a different skeleton project (e.g.
+    DefaultMale / DefaultFemale) and contains a ``variants`` list whose
+    elements carry a ``filename`` field.
+
+    All variants are included regardless of their ``disabled`` flag — a
+    disabled variant still names a real animation file that participates in
+    priority resolution.
+
+    Args:
+        raw_dict: The submod's raw config dictionary (``SubMod.raw_dict``).
+
+    Returns:
+        A deduplicated set of lowercased animation filenames found across
+        all ``replacementAnimDatas`` entries.  Returns an empty set when the
+        key is absent or the data is malformed.
+    """
+    filenames: set[str] = set()
+    entries = raw_dict.get("replacementAnimDatas", [])
+    if not isinstance(entries, list):
+        return filenames
+
+    for entry in entries:
+        if not isinstance(entry, dict):
+            continue
+        variants = entry.get("variants", [])
+        if not isinstance(variants, list):
+            continue
+        for variant in variants:
+            if not isinstance(variant, dict):
+                continue
+            filename = variant.get("filename")
+            if filename and isinstance(filename, str):
+                filenames.add(filename.lower())
+
+    return filenames
+
+
 def scan_animations(submods: list[SubMod]) -> None:
     """Populate each SubMod's animations list with lowercased .hkx filenames.
 
+    Discovers animations from two sources and merges them:
+
+    1. Filesystem: ``.hkx`` files found in the submod's animation directory
+       (or ``overrideAnimationsFolder`` if set).
+    2. Config JSON: filenames declared in ``replacementAnimDatas`` entries
+       within the submod's ``raw_dict``.
+
     Modifies submods in place.
+
+    Args:
+        submods: List of SubMod instances to populate.
     """
     for sm in submods:
         anim_dir = _get_animation_dir(sm)
         try:
-            hkx_files = [
+            hkx_files: set[str] = {
                 f.name.lower()
                 for f in anim_dir.iterdir()
                 if f.is_file() and f.suffix.lower() == ".hkx"
-            ]
+            }
         except OSError as e:
-            sm.warnings.append(f"Cannot read animation directory {anim_dir}: {e}")
-            hkx_files = []
+            sm.warnings.append(
+                f"Cannot read animation directory {anim_dir}: {e}"
+            )
+            hkx_files = set()
 
-        sm.animations = sorted(hkx_files)
+        config_anims = _extract_replacement_anim_data_filenames(sm.raw_dict)
+        sm.animations = sorted(hkx_files | config_anims)
 
 
 def build_conflict_map(submods: list[SubMod]) -> dict[str, list[SubMod]]:

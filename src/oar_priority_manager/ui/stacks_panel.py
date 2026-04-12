@@ -397,6 +397,22 @@ class StacksPanel(QWidget):
 
         self._header.setText(f"<b>Priority Stacks</b> · <code>{sm.name}</code>")
 
+        # Config-only submods have no animations and don't compete in any stack.
+        # Show an explanatory message instead of an empty scroll area so the
+        # user doesn't assume something is broken.
+        if sm.is_config_only:
+            info = QLabel(
+                "This submod is a config-only toggle. It has no animations and does"
+                " not compete in priority stacks. Other submods may reference it via"
+                " IsReplacerEnabled conditions."
+            )
+            info.setWordWrap(True)
+            info.setTextFormat(Qt.TextFormat.PlainText)
+            info.setStyleSheet("color: #6af; padding: 8px;")
+            self._content_layout.addWidget(info)
+            self._content_layout.addStretch()
+            return
+
         for anim in sm.animations:
             competitors = self._conflict_map.get(anim, [])
             section = self._build_stack_section(anim, competitors, sm)

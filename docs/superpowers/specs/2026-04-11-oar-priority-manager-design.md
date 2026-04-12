@@ -69,16 +69,17 @@ Stated non-goals did not prevent scope creep in attempts 1 and 2. This attempt i
 Verified from OAR source (`src/ReplacerMods.cpp::EvaluateConditionsAndGetReplacementAnimation()`):
 
 1. For a given animation event, OAR collects all submods that provide a replacement for the matching `.hkx` filename (case-insensitive match on filename).
-2. Disabled submods are excluded.
-3. The remaining submods are pre-sorted by priority descending.
-4. OAR iterates the sorted list and returns the first submod whose conditions evaluate to true at runtime.
-5. If no submod's conditions match, vanilla plays.
+2. OAR iterates through submods sorted by priority descending (case-sensitive sort on priority value). Disabled submods are **skipped during iteration**, not pre-filtered from the collection — they still exist in the sorted list but are passed over.
+3. For each non-disabled submod, OAR evaluates its conditions and returns the first whose conditions evaluate to true at runtime.
+4. If no submod's conditions match, OAR returns `nullptr` and the vanilla animation plays.
 
 **Key implications:**
 
 - **Priority is a tiebreaker only when conditions match.** A higher-priority submod whose conditions fail does not block a lower-priority submod.
 - **Filename is matched case-insensitively.** The tool normalizes `.hkx` filenames to lowercase when building its conflict map.
 - **Priority is `int32`.** Values can range from `INT32_MIN` to `INT32_MAX`. Real-world OAR mods often use values in the 1e9 – 2e9 range.
+- **Equal-priority behavior is undefined.** OAR uses `std::stable_sort` at load time, but since load order is not deterministic across game launches, two submods with identical priority have **undefined evaluation order**. The tool surfaces this as a `⚠ TIED` indicator (see §7.4).
+- **`user.json` is a complete data replacement, not a merge.** When `user.json` exists alongside `config.json`, OAR reads `name` and `description` from `config.json` (tagged `kInfoOnly`) and **all other data fields** from `user.json` (tagged `kDataOnly`) — including `conditions`, `disabled`, `interruptible`, `replaceOnLoop`, `overrideAnimationsFolder`, etc. Missing fields in `user.json` get **OAR's compiled defaults**, not the values from `config.json`. This is critical for the tool's round-trip strategy (§8.1.2).
 
 ## 5. Core data model
 
@@ -126,6 +127,8 @@ When reading a submod's effective priority, the tool checks in this order:
 3. **config.json** at `<source mod>/<replacer>/<submod>/config.json` — original author value
 
 The first file found in this order supplies the effective priority. The tool never writes to levels 2 or 3; it only writes to level 1.
+
+**Critical: `raw_dict` must come from the winning file.** Because `user.json` is a complete data replacement for all fields except name/description (see §4), the tool MUST read `raw_dict` from whichever file wins the precedence chain — not always from `config.json`. If a source `user.json` exists at level 2, `raw_dict` is read from that `user.json`, because that is the file whose data OAR is actually using at runtime. Writing an Overwrite `user.json` based on `config.json` when a source `user.json` exists would silently replace the user's conditions and other data fields with `config.json` values — a data-corruption bug.
 
 ### 5.4 Priority stack
 
@@ -181,7 +184,7 @@ Approximately **70% of core code is salvaged from attempt 2**, unchanged or with
 
 **`core/scanner.py`** — Walks the MO2 mods directory, discovers every submod folder, applies override precedence, and builds the initial set of `SubMod` records. Handles the MO2 Overwrite folder as an override layer.
 
-**`core/anim_scanner.py`** — Cross-mod scan of every submod's animation files, including `overrideAnimationsFolder` redirection. Produces a `conflict_map: dict[str, list[SubMod]]` keyed by lowercased filename.
+**`core/anim_scanner.py`** — Cross-mod scan of every submod's animation files, including `overrideAnimationsFolder` redirection. The `overrideAnimationsFolder` path resolves relative to the **parent of the submod directory** (i.e. the replacer folder), not relative to the submod itself — matching OAR's own resolution logic. Produces a `conflict_map: dict[str, list[SubMod]]` keyed by lowercased filename.
 
 **`core/serializer.py`** — Writes a `raw_dict` back to disk as JSON, preserving field order. Enforces a **mutable-field allowlist**: before writing, the serializer diffs the output `raw_dict` against the original read and raises `IllegalMutationError` if any field outside `["priority"]` has been modified. This is the architectural guardrail described in §3.3 — it makes non-priority mutations a hard failure, not a silent corruption. The serializer also injects a `_oarPriorityManager` metadata object (tool version + write timestamp) into every `user.json` it writes, used for override provenance detection (§8.1).
 
@@ -310,7 +313,7 @@ An empty search bar shows everything normally. The search bar has keyboard focus
 **Tree (top of left column):**
 
 - Three levels: Mod → Replacer → Submod
-- Sort order: Mod alphabetical (OAR-native), Replacer alphabetical, Submod priority descending (OAR-native)
+- Sort order: Mod alphabetical by OAR display name, case-sensitive (OAR-native), Replacer alphabetical, Submod priority descending (OAR-native)
 - Sort toggle at the top of the panel: `Submods: [Priority] [Name]`, default Priority. Only applies to the submod level; mod and replacer levels have fixed sort.
 - **Auto-expand single replacers:** when a mod has only one replacer, the replacer node is auto-expanded (no extra click for the common case). Multi-replacer mods start collapsed as normal.
 - Each row is one line: a status icon (✓ enabled, ⚠ warning, ✗ disabled) and the display name.
@@ -357,7 +360,7 @@ An empty search bar shows everything normally. The search bar has keyboard focus
 One section per animation file provided by the currently selected submod (or by everything in scope, if a replacer or mod is selected).
 
 - Sections are expandable, default expanded. `▾` / `▸` toggle state per section.
-- Each section header shows: animation filename, competitor count, status (`you're #1` / `losing by N · set to X to win`). The "set to X to win" value is `max(competitor_priorities) + 1` — the same value Move to Top would compute. This directly answers the user story question ("what priority do I need to set?") without requiring any mental arithmetic or clicking.
+- Each section header shows: animation filename, competitor count, status (`you're #1` / `losing by N · set to X to win` / `⚠ TIED`). The "set to X to win" value is `max(competitor_priorities) + 1` — the same value Move to Top would compute. This directly answers the user story question ("what priority do I need to set?") without requiring any mental arithmetic or clicking. The `⚠ TIED` status appears when two or more competitors have identical priority — their evaluation order is undefined at runtime (see §4), so the user should resolve the tie by adjusting priorities.
 - Each competitor row: rank badge + priority number column + owner.
   - Rank badge: `#1` in green for top, `#2`+ in grey, losing rows get a red background.
   - `(you)` marker on the selected submod's rows.
@@ -456,7 +459,7 @@ This prevents the silent-override problem identified in review: if the user chan
 
 ### 8.1.2 Round-trip preservation
 
-The tool reads the full source `config.json` (or existing override), modifies only the `priority` field (and adds/updates the `_oarPriorityManager` metadata), and writes the complete structure back. All other fields — name, description, conditions, overrideAnimationsFolder, etc. — round-trip untouched. The serializer's mutable-field allowlist (§3.3, §6.2) enforces this at the code level.
+The tool reads the full `raw_dict` from the **winning file in the override precedence chain** (§5.3) — which may be a source `user.json`, not always `config.json`. This is critical because `user.json` is a complete data replacement (§4): if a source `user.json` exists with modified conditions, the tool must base its Overwrite file on that `user.json`, not on `config.json`. The tool then modifies only the `priority` field (and adds/updates the `_oarPriorityManager` metadata), and writes the complete structure back. All other fields — name, description, conditions, overrideAnimationsFolder, etc. — round-trip untouched. The serializer's mutable-field allowlist (§3.3, §6.2) enforces this at the code level.
 
 **Round-trip precision:** round-trip means **semantically equivalent JSON**, not byte-identical output. Acceptable mutations on write:
 
@@ -545,6 +548,7 @@ This chain handles both MO2 portable mode (instance root = MO2 folder) and MO2 i
 - **Golden-file round-trip tests for the serializer.** For each fixture config (synthetic and real-world), load → modify priority → serialize → re-load → diff. The diff checks the precision rules defined in §8.1.2: no key loss, no value changes except `priority` and `_oarPriorityManager`, no structural changes. Any violation fails the test.
 - **UI smoke tests** via `pytest-qt`. Scope: construct the main window, load fixtures, click a small set of interactions (expand section, toggle Relative/Absolute, open Advanced filter, select tree item), verify no crashes or exceptions. Not full visual regression.
 - **TDD is mandatory for the core engine.** Every function in `priority_resolver.py`, `filter_engine.py`, and `override_manager.py` is written test-first. TDD is best-effort for UI modules.
+- **Dedicated test for `user.json` precedence in `raw_dict` sourcing.** Given a submod with `config.json` (priority=100, conditions=A) and a source `user.json` (priority=200, conditions=B), the tool must read `raw_dict` from the source `user.json`. When the user sets priority to 300 via the tool, the resulting Overwrite `user.json` must contain priority=300 **and conditions=B** (from the source `user.json`), not conditions=A (from `config.json`). This test verifies the critical invariant from §4 and §5.3.
 - **No end-to-end Skyrim launch tests.** Out of scope; too expensive for the payoff.
 
 ### 11.2 CI
@@ -572,6 +576,7 @@ Items 1, 3, and 4 from the original list have been resolved in the spec (see §8
 2. **Performance target.** For a modlist with ~500 OAR mods totaling ~50,000 submods, is the scan fast enough to run on every tool launch, or does the tool need an on-disk cache? Profile against a real large modlist during the first implementation milestone. If scan exceeds 10 seconds, add a progress bar + background thread with progressive UI population. The architecture supports this (scan is sequential; UI construction can start on partial data).
 3. **VFS file shadowing.** If two MO2 mods provide the same `.hkx` file at the exact same relative OAR submod path, MO2 mod order determines which is visible to OAR. The tool does not resolve VFS shadows — it treats all discovered animation files as real competitors. This is a **known limitation** for the rare edge case where two mods use identical replacer and submod folder names. In practice, OAR submod paths are unique per mod author, so false competitors from VFS shadowing are extremely uncommon. If a user reports this edge case, the fix is to add MO2 load-order awareness to the anim_scanner, but this is not MVP scope.
 4. **Condition formatter fallback rate.** The three-bucket formatted view (§7.5) must be validated against real-world condition trees during the first milestone. If the fallback rate exceeds 30%, replace with a simpler indented-tree display.
+5. **`requiredProjectName` creates invisible competition boundaries.** OAR's `requiredProjectName` field restricts a submod to a specific behavior project (e.g. `DefaultMale` vs `DefaultFemale`). Two submods providing the same `.hkx` but targeting different projects don't actually compete at runtime — OAR only evaluates submods whose project matches the current actor's active project. The tool's filename-only conflict map would show these as false competitors. This is a **known limitation for MVP**. Real-world impact is low: most OAR mods target the default project or omit the field entirely. If users report false positives from project-scoped submods, the fix is to add `requiredProjectName` awareness to the conflict map grouping.
 
 ## 14. Success criteria
 

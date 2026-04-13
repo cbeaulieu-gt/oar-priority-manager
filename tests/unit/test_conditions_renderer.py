@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 from oar_priority_manager.ui.conditions_renderer import (
-    RenderedNode,
     conditions_stats,
     render_conditions,
     resolve_preset,
@@ -69,6 +68,42 @@ class TestRenderConditions:
         assert group.children[0].text == "IsFemale"
         assert group.children[1].text == "IsInCombat"
 
+    def test_and_group_capital_conditions_key(self):
+        """Real OAR data uses capital-C 'Conditions' in AND/OR groups."""
+        conditions = [
+            {
+                "condition": "AND",
+                "requiredVersion": "1.0.0.0",
+                "Conditions": [
+                    {"condition": "IsFemale", "requiredVersion": "1.0.0.0"},
+                    {"condition": "IsInCombat", "requiredVersion": "1.0.0.0"},
+                ],
+            }
+        ]
+        result = render_conditions(conditions)
+        assert len(result) == 1
+        group = result[0]
+        assert group.node_type == "AND"
+        assert len(group.children) == 2
+        assert group.children[0].text == "IsFemale"
+        assert group.children[1].text == "IsInCombat"
+
+    def test_or_group_capital_conditions_key(self):
+        """Real OAR OR groups also use capital-C 'Conditions'."""
+        conditions = [
+            {
+                "condition": "OR",
+                "requiredVersion": "1.0.0.0",
+                "Conditions": [
+                    {"condition": "IsFemale", "requiredVersion": "1.0.0.0"},
+                    {"condition": "IsInCombat", "requiredVersion": "1.0.0.0"},
+                ],
+            }
+        ]
+        result = render_conditions(conditions)
+        assert result[0].node_type == "OR"
+        assert len(result[0].children) == 2
+
     def test_or_group(self):
         conditions = [
             {
@@ -106,6 +141,32 @@ class TestRenderConditions:
         assert len(or_node.children[0].children) == 2
         assert or_node.children[1].text == "IsInCombat"
 
+    def test_nested_real_oar_format(self):
+        """Nested AND/OR with capital-C Conditions and requiredVersion throughout."""
+        conditions = [
+            {
+                "condition": "OR",
+                "requiredVersion": "1.0.0.0",
+                "Conditions": [
+                    {
+                        "condition": "AND",
+                        "requiredVersion": "1.0.0.0",
+                        "Conditions": [
+                            {"condition": "IsFemale", "requiredVersion": "1.0.0.0"},
+                            {"condition": "IsSneaking", "requiredVersion": "1.0.0.0"},
+                        ],
+                    },
+                    {"condition": "IsInCombat", "requiredVersion": "1.0.0.0"},
+                ],
+            }
+        ]
+        result = render_conditions(conditions)
+        or_node = result[0]
+        assert or_node.node_type == "OR"
+        assert or_node.children[0].node_type == "AND"
+        assert len(or_node.children[0].children) == 2
+        assert or_node.children[1].text == "IsInCombat"
+
     def test_preset_reference(self):
         conditions = [
             {"condition": "PRESET", "Preset": "Combat Ready Stance"}
@@ -128,6 +189,22 @@ class TestRenderConditions:
         assert result[0].node_type == "AND"
         assert result[0].children[0].text == "IsFemale"
 
+    def test_top_level_dict_with_capital_conditions_key(self):
+        """Top-level dict using capital-C 'Conditions' (real OAR format)."""
+        conditions = {
+            "condition": "OR",
+            "requiredVersion": "1.0.0.0",
+            "Conditions": [
+                {"condition": "IsFemale", "requiredVersion": "1.0.0.0"},
+                {"condition": "IsInCombat", "requiredVersion": "1.0.0.0"},
+            ],
+        }
+        result = render_conditions(conditions)
+        assert len(result) == 1
+        assert result[0].node_type == "OR"
+        assert len(result[0].children) == 2
+        assert result[0].children[0].text == "IsFemale"
+
     def test_top_level_dict_bare_conditions_key(self):
         """Dict with just a conditions key, no condition type — implicit AND."""
         conditions = {
@@ -138,6 +215,45 @@ class TestRenderConditions:
         result = render_conditions(conditions)
         assert len(result) == 1
         assert result[0].node_type == "AND"
+
+    def test_required_version_filtered_from_leaf_params(self):
+        """requiredVersion is structural noise and must not appear in params."""
+        conditions = [
+            {
+                "condition": "IsFemale",
+                "requiredVersion": "1.0.0.0",
+                "negated": False,
+            }
+        ]
+        result = render_conditions(conditions)
+        assert "requiredVersion" not in result[0].params
+
+    def test_disabled_filtered_from_leaf_params(self):
+        """disabled is OAR metadata and must not appear in params."""
+        conditions = [
+            {
+                "condition": "IsInCombat",
+                "requiredVersion": "1.0.0.0",
+                "disabled": True,
+            }
+        ]
+        result = render_conditions(conditions)
+        assert "disabled" not in result[0].params
+        assert "requiredVersion" not in result[0].params
+
+    def test_user_meaningful_params_still_visible(self):
+        """formID and pluginName are user-meaningful and must still appear."""
+        conditions = [
+            {
+                "condition": "HasPerk",
+                "requiredVersion": "1.0.0.0",
+                "negated": False,
+                "formID": "0x00012345",
+                "pluginName": "Skyrim.esm",
+            }
+        ]
+        result = render_conditions(conditions)
+        assert result[0].params == {"formID": "0x00012345", "pluginName": "Skyrim.esm"}
 
     def test_missing_negated_defaults_false(self):
         conditions = [{"condition": "IsFemale"}]
@@ -259,7 +375,7 @@ class TestPresetDataFlow:
     """Integration-style tests verifying presets flow from scanner to TreeNode."""
 
     def test_tree_node_has_condition_presets_field(self):
-        from oar_priority_manager.ui.tree_model import TreeNode, NodeType
+        from oar_priority_manager.ui.tree_model import NodeType, TreeNode
         node = TreeNode(
             display_name="test",
             node_type=NodeType.REPLACER,
@@ -268,6 +384,6 @@ class TestPresetDataFlow:
         assert node.condition_presets == {"Combat": [{"condition": "IsInCombat"}]}
 
     def test_tree_node_default_empty_presets(self):
-        from oar_priority_manager.ui.tree_model import TreeNode, NodeType
+        from oar_priority_manager.ui.tree_model import NodeType, TreeNode
         node = TreeNode(display_name="test", node_type=NodeType.MOD)
         assert node.condition_presets == {}

@@ -184,7 +184,16 @@ def scan_mods(
         if replacer_config_path.is_file():
             rep_dict, _ = parse_config(replacer_config_path)
             raw_presets = rep_dict.get("conditionPresets", {})
-            if isinstance(raw_presets, dict):
+            if isinstance(raw_presets, list):
+                # Real OAR format: list of {"name": ..., "conditions": [...]}
+                replacer_presets = {
+                    p["name"]: p.get("conditions", p.get("Conditions", []))
+                    for p in raw_presets
+                    if isinstance(p, dict) and "name" in p
+                    and ("conditions" in p or "Conditions" in p)
+                }
+            elif isinstance(raw_presets, dict):
+                # Legacy / test-fixture format: dict keyed by name
                 replacer_presets = raw_presets
 
         sm = _build_submod(

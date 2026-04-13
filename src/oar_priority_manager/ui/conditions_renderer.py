@@ -10,8 +10,12 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 # Keys that are structural (not user-visible parameters).
+# "Conditions" (capital-C) is the real OAR format for AND/OR child lists.
+# "requiredVersion" and "disabled" appear on almost every real condition but
+# carry no user-meaningful semantic — omit them from the params display.
 _STRUCTURAL_KEYS: frozenset[str] = frozenset({
-    "condition", "negated", "conditions", "Preset",
+    "condition", "negated", "conditions", "Conditions", "Preset",
+    "requiredVersion", "disabled",
 })
 
 # OAR group-node condition types.
@@ -60,12 +64,14 @@ def render_conditions(conditions: dict | list) -> list[RenderedNode]:
     if isinstance(conditions, dict):
         if not conditions:
             return []
-        # Dict with a "conditions" key is a group node
-        if "conditions" in conditions:
+        # Dict with a "conditions"/"Conditions" key is a group node.
+        # Real OAR data uses capital-C "Conditions"; support both.
+        children_key = "Conditions" if "Conditions" in conditions else "conditions"
+        if children_key in conditions:
             group_type = conditions.get("condition", "AND")
             if group_type not in _GROUP_TYPES:
                 group_type = "AND"
-            children_raw = conditions.get("conditions", [])
+            children_raw = conditions.get(children_key, [])
             children = [
                 node
                 for item in children_raw
@@ -76,7 +82,7 @@ def render_conditions(conditions: dict | list) -> list[RenderedNode]:
                 node_type=group_type,
                 children=children,
             )]
-        # Dict without "conditions" key — single leaf node
+        # Dict without "conditions"/"Conditions" key — single leaf node
         node = _render_node(conditions)
         return [node] if node is not None else []
 
@@ -104,9 +110,11 @@ def _render_node(item: object) -> RenderedNode | None:
             preset_name=preset_name if isinstance(preset_name, str) else "",
         )
 
-    # AND/OR group node
-    if condition_type in _GROUP_TYPES and "conditions" in item:
-        children_raw = item.get("conditions", [])
+    # AND/OR group node.
+    # Real OAR uses capital-C "Conditions"; support both case variants.
+    children_key = "Conditions" if "Conditions" in item else "conditions"
+    if condition_type in _GROUP_TYPES and children_key in item:
+        children_raw = item.get(children_key, [])
         children = [
             node
             for child in children_raw

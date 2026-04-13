@@ -3,7 +3,9 @@ from __future__ import annotations
 
 from oar_priority_manager.ui.conditions_renderer import (
     RenderedNode,
+    conditions_stats,
     render_conditions,
+    resolve_preset,
 )
 
 
@@ -147,3 +149,107 @@ class TestRenderConditions:
         result = render_conditions(conditions)
         assert len(result) == 1
         assert result[0].text == "IsFemale"
+
+
+class TestResolvePreset:
+    def test_resolve_existing_preset(self):
+        presets = {
+            "Combat Ready": [
+                {"condition": "IsWeaponDrawn", "negated": False},
+                {"condition": "IsInCombat", "negated": False},
+            ]
+        }
+        result = resolve_preset("Combat Ready", presets)
+        assert result is not None
+        assert len(result) == 2
+        assert result[0].text == "IsWeaponDrawn"
+        assert result[1].text == "IsInCombat"
+
+    def test_resolve_missing_preset_returns_none(self):
+        presets = {"Combat Ready": [{"condition": "IsWeaponDrawn", "negated": False}]}
+        result = resolve_preset("Nonexistent", presets)
+        assert result is None
+
+    def test_resolve_empty_presets_dict(self):
+        result = resolve_preset("Anything", {})
+        assert result is None
+
+    def test_resolve_invalid_presets_type(self):
+        result = resolve_preset("Anything", "not a dict")
+        assert result is None
+
+    def test_resolve_preset_with_nested_group(self):
+        presets = {
+            "Weapon Check": {
+                "condition": "AND",
+                "conditions": [
+                    {"condition": "IsWeaponDrawn", "negated": False},
+                    {"condition": "IsMounted", "negated": True},
+                ],
+            }
+        }
+        result = resolve_preset("Weapon Check", presets)
+        assert result is not None
+        assert len(result) == 1
+        assert result[0].node_type == "AND"
+        assert len(result[0].children) == 2
+
+
+class TestConditionsStats:
+    def test_empty_tree(self):
+        stats = conditions_stats([])
+        assert stats == {"conditions": 0, "types": 0, "negated": 0, "presets": 0}
+
+    def test_flat_leaves(self):
+        nodes = render_conditions([
+            {"condition": "IsFemale", "negated": False},
+            {"condition": "IsInCombat", "negated": False},
+            {"condition": "HasShield", "negated": True},
+        ])
+        stats = conditions_stats(nodes)
+        assert stats["conditions"] == 3
+        assert stats["types"] == 3
+        assert stats["negated"] == 1
+        assert stats["presets"] == 0
+
+    def test_duplicate_types_counted_once(self):
+        nodes = render_conditions([
+            {"condition": "IsFemale", "negated": False},
+            {"condition": "IsFemale", "negated": True},
+        ])
+        stats = conditions_stats(nodes)
+        assert stats["conditions"] == 2
+        assert stats["types"] == 1
+        assert stats["negated"] == 1
+
+    def test_with_presets(self):
+        nodes = render_conditions([
+            {"condition": "IsFemale", "negated": False},
+            {"condition": "PRESET", "Preset": "Combat Ready"},
+            {"condition": "PRESET", "Preset": "Weapon Check"},
+        ])
+        stats = conditions_stats(nodes)
+        assert stats["presets"] == 2
+        assert stats["conditions"] == 1
+        assert stats["types"] == 1
+
+    def test_nested_groups(self):
+        nodes = render_conditions([
+            {
+                "condition": "AND",
+                "conditions": [
+                    {"condition": "IsFemale", "negated": False},
+                    {
+                        "condition": "OR",
+                        "conditions": [
+                            {"condition": "HasPerk", "negated": False},
+                            {"condition": "HasKeyword", "negated": True},
+                        ],
+                    },
+                ],
+            },
+        ])
+        stats = conditions_stats(nodes)
+        assert stats["conditions"] == 3
+        assert stats["types"] == 3
+        assert stats["negated"] == 1

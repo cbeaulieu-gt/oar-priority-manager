@@ -205,17 +205,78 @@ class ConditionsPanel(QWidget):
     def _render_group(
         self, node: RenderedNode, parent_layout: QVBoxLayout, indent: int
     ) -> None:
-        """Render an AND/OR group with its children."""
+        """Render a collapsible AND/OR group with a clickable header.
+
+        Groups start expanded by default so the full condition tree is
+        visible on load.  Clicking the header toggles child visibility,
+        and the arrow glyph (▾/▸) reflects the current state.
+
+        Args:
+            node: The AND/OR RenderedNode to render.
+            parent_layout: The parent layout to add this group into.
+            indent: Current indentation level (multiples of 20 px).
+        """
         label_text = "ALL of:" if node.node_type == "AND" else "ANY of:"
         color = "#7aa2f7" if node.node_type == "AND" else "#bb9af7"
+        child_count = len(node.children)
 
-        group_label = QLabel(f"<b style='color:{color};'>{label_text}</b>")
-        group_label.setTextFormat(Qt.TextFormat.RichText)
-        group_label.setContentsMargins(indent * 20, 2, 0, 0)
-        parent_layout.addWidget(group_label)
+        def _expanded_html(
+            lbl: str = label_text,
+            clr: str = color,
+            n: int = child_count,
+        ) -> str:
+            return (
+                f"<b style='color:{clr};'>▾ {lbl}</b>"
+                f" <span style='color:#565f89; font-size:11px;'>"
+                f"({n})</span>"
+            )
 
-        # Render children at increased indent
-        self._render_nodes(node.children, parent_layout, indent + 1)
+        def _collapsed_html(
+            lbl: str = label_text,
+            clr: str = color,
+            n: int = child_count,
+        ) -> str:
+            return (
+                f"<b style='color:{clr};'>▸ {lbl}</b>"
+                f" <span style='color:#565f89; font-size:11px;'>"
+                f"({n})</span>"
+            )
+
+        header = QLabel(_expanded_html())
+        header.setTextFormat(Qt.TextFormat.RichText)
+        header.setCursor(Qt.CursorShape.PointingHandCursor)
+        header.setContentsMargins(indent * 20, 2, 0, 0)
+        parent_layout.addWidget(header)
+
+        # Children container — visible by default (expanded)
+        children_widget = QWidget()
+        children_layout = QVBoxLayout(children_widget)
+        children_layout.setContentsMargins(0, 0, 0, 0)
+        children_layout.setSpacing(0)
+        parent_layout.addWidget(children_widget)
+
+        # Render children into the container at increased indent
+        self._render_nodes(node.children, children_layout, indent + 1)
+
+        def _toggle(
+            _event: object = None,
+            *,
+            cw: QWidget = children_widget,
+            hdr: QLabel = header,
+        ) -> None:
+            # Use isHidden() rather than isVisible(): isVisible() returns
+            # False for widgets that have never been shown in a top-level
+            # window, so it cannot distinguish "explicitly hidden" from
+            # "not yet displayed".  isHidden() reflects only explicit
+            # hide()/show() calls, which is what we need here.
+            if not cw.isHidden():
+                cw.hide()
+                hdr.setText(_collapsed_html())
+            else:
+                cw.show()
+                hdr.setText(_expanded_html())
+
+        header.mousePressEvent = _toggle
 
     def _render_leaf(
         self, node: RenderedNode, parent_layout: QVBoxLayout, indent: int

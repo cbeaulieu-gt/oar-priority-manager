@@ -114,6 +114,105 @@ class TestConditionsPanelStats:
         assert "1" in footer_text
 
 
+class TestGroupCollapsibility:
+    """AND/OR group headers must be clickable and start expanded."""
+
+    def _make_and_conditions(self):
+        """Return conditions with a top-level AND group."""
+        return [
+            {
+                "condition": "AND",
+                "conditions": [
+                    {"condition": "IsFemale", "negated": False},
+                    {"condition": "IsInCombat", "negated": False},
+                ],
+            }
+        ]
+
+    def _find_group_header(self, panel):
+        """Return the first QLabel whose text starts with the AND arrow."""
+        from PySide6.QtWidgets import QLabel
+        from PySide6.QtCore import Qt
+
+        def _search(widget):
+            for child in widget.findChildren(QLabel):
+                txt = child.text()
+                if "ALL of:" in txt or "ANY of:" in txt:
+                    return child
+            return None
+
+        return _search(panel._formatted_content)
+
+    def _find_children_widget(self, panel):
+        """Return the first non-header QWidget inside the formatted content."""
+        from PySide6.QtWidgets import QWidget, QLabel
+
+        # The children_widget is a QWidget added directly to
+        # _formatted_layout right after the header label.
+        layout = panel._formatted_layout
+        for i in range(layout.count()):
+            item = layout.itemAt(i)
+            w = item.widget() if item else None
+            if w is not None and not isinstance(w, QLabel):
+                return w
+        return None
+
+    def test_group_header_is_clickable(self, qapp):
+        """Group header QLabel must have PointingHandCursor set."""
+        from PySide6.QtCore import Qt
+
+        panel = ConditionsPanel()
+        sm = _make_submod(conditions=self._make_and_conditions())
+        panel.update_focus(sm)
+
+        header = self._find_group_header(panel)
+        assert header is not None, "No group header label found"
+        assert header.cursor().shape() == Qt.CursorShape.PointingHandCursor
+
+    def test_group_starts_expanded(self, qapp):
+        """Children widget must not be hidden immediately after update_focus.
+
+        QWidget.isVisible() returns False for widgets that have never been
+        rendered in a top-level window, so we check isHidden() instead —
+        which reflects only explicit hide() calls, not window-show state.
+        """
+        panel = ConditionsPanel()
+        sm = _make_submod(conditions=self._make_and_conditions())
+        panel.update_focus(sm)
+
+        children = self._find_children_widget(panel)
+        assert children is not None, "No children container widget found"
+        assert not children.isHidden(), "Group should start expanded (not hidden)"
+
+    def test_clicking_header_toggles_children_visibility(self, qapp):
+        """Clicking the header once hides children; again shows them.
+
+        Uses isHidden() rather than isVisible() because the panel is never
+        shown in a top-level window during tests — isVisible() would return
+        False even after show() in that case.
+        """
+        panel = ConditionsPanel()
+        sm = _make_submod(conditions=self._make_and_conditions())
+        panel.update_focus(sm)
+
+        header = self._find_group_header(panel)
+        children = self._find_children_widget(panel)
+        assert header is not None
+        assert children is not None
+
+        # First click — should collapse (hide children)
+        header.mousePressEvent(None)
+        assert children.isHidden(), (
+            "Children should be hidden after first click"
+        )
+
+        # Second click — should expand (show children)
+        header.mousePressEvent(None)
+        assert not children.isHidden(), (
+            "Children should not be hidden after second click"
+        )
+
+
 class TestPresetExpansion:
     def test_preset_resolves_from_submod_replacer_presets(self, qapp):
         panel = ConditionsPanel()

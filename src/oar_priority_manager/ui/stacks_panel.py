@@ -7,6 +7,9 @@ Issues addressed:
   #34 — Rank badge colours (green for #1, grey for rest; red bg for losing rows)
   #35 — Expand/collapse animation sections
   #36 — Clickable competitor rows emitting competitor_focused signal
+  #46 — Shift by N button
+  #47 — Animation filter input
+  #48 — Collapse-winning toggle button
   #68 — Action buttons moved to toolbar row
   #69 — Relative/Absolute replaced with segmented toggle control
 """
@@ -18,7 +21,9 @@ from PySide6.QtWidgets import (
     QButtonGroup,
     QFrame,
     QHBoxLayout,
+    QInputDialog,
     QLabel,
+    QLineEdit,
     QPushButton,
     QScrollArea,
     QSizePolicy,
@@ -301,9 +306,34 @@ class StacksPanel(QWidget):
         )
         toolbar.addWidget(self._move_mod_btn)
 
+        # -- Shift by N button (issue #46) --
+        self._shift_btn = QPushButton("Shift…")
+        self._shift_btn.setToolTip("Shift priority by a relative amount")
+        self._shift_btn.clicked.connect(self._on_shift)
+        toolbar.addWidget(self._shift_btn)
+
+        # -- Hide Winning toggle (issue #48) --
+        self._collapse_winning_btn = QPushButton("Hide Winning")
+        self._collapse_winning_btn.setCheckable(True)
+        self._collapse_winning_btn.setToolTip(
+            "Collapse sections where the selected submod is already #1"
+        )
+        self._collapse_winning_btn.toggled.connect(self._on_collapse_winning)
+        toolbar.addWidget(self._collapse_winning_btn)
+
         # No trailing stretch — toolbar fills naturally; action btns are right
         # of the spacer and the segmented toggle anchors to the left.
         layout.addWidget(toolbar_widget)
+
+        # ---- Animation filter input (issue #47) ----
+        # Placed below the toolbar row, above the header label, so it targets
+        # the scroll area content without cluttering the action-button row.
+        self._anim_filter = QLineEdit()
+        self._anim_filter.setPlaceholderText("Filter animations…")
+        self._anim_filter.setMaximumHeight(28)
+        self._anim_filter.setClearButtonEnabled(True)
+        self._anim_filter.textChanged.connect(self._on_anim_filter)
+        layout.addWidget(self._anim_filter)
 
         # ---- Toast notification (issue #37, spec §7.4) ----
         self._toast = QLabel()
@@ -348,6 +378,7 @@ class StacksPanel(QWidget):
         self._set_exact_btn.setEnabled(enabled)
         self._move_rep_btn.setEnabled(enabled)
         self._move_mod_btn.setEnabled(enabled)
+        self._shift_btn.setEnabled(enabled)  # issue #46
         self._refresh_display()
 
     def show_toast(self, message: str) -> None:
@@ -463,6 +494,11 @@ class StacksPanel(QWidget):
         header_text = f"{anim} · {len(competitors)} competitors · {status}"
         section = _StackSection(header_text)
 
+        # Store metadata needed by filter (issue #47) and hide-winning
+        # (issue #48) without subclassing _StackSection.
+        section.anim_name = anim  # type: ignore[attr-defined]
+        section.is_winning = rank == 0  # type: ignore[attr-defined]
+
         # Restore collapsed state (issue #35)
         if self._collapsed.get(anim, False):
             # Simulate collapse without extra toggle machinery
@@ -515,7 +551,7 @@ class StacksPanel(QWidget):
     # ------------------------------------------------------------------
 
     def _on_set_exact(self) -> None:
-        from PySide6.QtWidgets import QInputDialog
+        """Open a dialog to set the selected submod's priority to an exact value."""
         if self._current_submod is None:
             return
         value, ok = QInputDialog.getInt(
@@ -526,3 +562,84 @@ class StacksPanel(QWidget):
         )
         if ok:
             self.action_triggered.emit("set_exact", self._current_submod, value)
+
+    # ------------------------------------------------------------------
+    # Shift dialog (issue #46)
+    # ------------------------------------------------------------------
+
+    def _on_shift(self) -> None:
+        """Open a dialog to shift the selected submod's priority by a delta.
+
+        Prompts the user for a positive or negative integer offset, then
+        emits ``action_triggered("shift", submod, delta)`` on confirmation.
+        """
+        if self._current_submod is None:
+            return
+        value, ok = QInputDialog.getInt(
+            self, "Shift Priority",
+            "Shift priority by:",
+            value=0,
+            min=-2_147_483_648, max=2_147_483_647,
+        )
+        if ok:
+            self.action_triggered.emit("shift", self._current_submod, value)
+
+    # ------------------------------------------------------------------
+    # Animation filter (issue #47)
+    # ------------------------------------------------------------------
+
+    def _on_anim_filter(self, query: str) -> None:
+        """Show only stack sections whose animation name contains *query*.
+
+        Iterates every ``_StackSection`` widget currently in the scroll
+        area's content layout and toggles visibility based on a
+        case-insensitive substring match.  An empty query restores all
+        sections.
+
+        Args:
+            query: The filter string typed by the user.
+        """
+        q = query.lower()
+        for i in range(self._content_layout.count()):
+            item = self._content_layout.itemAt(i)
+            if item is None:
+                continue
+            widget = item.widget()
+            if not isinstance(widget, _StackSection):
+                continue
+            anim_name: str = getattr(widget, "anim_name", "")
+            visible = not q or q in anim_name.lower()
+            widget.setVisible(visible)
+
+    # ------------------------------------------------------------------
+    # Collapse-winning toggle (issue #48)
+    # ------------------------------------------------------------------
+
+    def _on_collapse_winning(self, checked: bool) -> None:
+        """Collapse or expand sections based on whether the submod is winning.
+
+        When *checked* is ``True``, every section where the selected
+        submod is rank #1 (``section.is_winning is True``) is collapsed
+        so the user can focus on conflicting animations.  When *checked*
+        is ``False``, all sections are expanded.
+
+        Args:
+            checked: ``True`` to hide winning sections, ``False`` to
+                restore all.
+        """
+        for i in range(self._content_layout.count()):
+            item = self._content_layout.itemAt(i)
+            if item is None:
+                continue
+            widget = item.widget()
+            if not isinstance(widget, _StackSection):
+                continue
+            is_winning: bool = getattr(widget, "is_winning", False)
+            if checked and is_winning:
+                # Collapse: force content hidden without toggling state
+                # so the header arrow stays consistent.
+                if widget._expanded:
+                    widget._toggle()
+            elif not checked and not widget._expanded:
+                # Expand all sections back.
+                widget._toggle()

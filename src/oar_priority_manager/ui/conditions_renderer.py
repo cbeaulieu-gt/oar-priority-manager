@@ -131,6 +131,46 @@ def _render_node(item: object) -> RenderedNode | None:
     )
 
 
+def conditions_stats(nodes: list[RenderedNode]) -> dict[str, int]:
+    """Compute summary statistics for a rendered condition tree.
+
+    Walks the tree and counts leaf conditions, unique types, negated
+    leaves, and preset references.
+
+    Args:
+        nodes: The top-level list of RenderedNode from render_conditions().
+
+    Returns:
+        Dict with keys: "conditions", "types", "negated", "presets".
+    """
+    types: set[str] = set()
+    total = 0
+    negated = 0
+    presets = 0
+
+    def _walk(node_list: list[RenderedNode]) -> None:
+        nonlocal total, negated, presets
+        for node in node_list:
+            if node.node_type == "preset":
+                presets += 1
+            elif node.node_type in ("AND", "OR"):
+                _walk(node.children)
+            else:
+                # leaf
+                total += 1
+                types.add(node.text)
+                if node.negated:
+                    negated += 1
+
+    _walk(nodes)
+    return {
+        "conditions": total,
+        "types": len(types),
+        "negated": negated,
+        "presets": presets,
+    }
+
+
 def resolve_preset(
     preset_name: str, presets: dict
 ) -> list[RenderedNode] | None:

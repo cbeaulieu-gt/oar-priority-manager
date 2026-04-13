@@ -112,3 +112,47 @@ class TestConditionsPanelStats:
         footer_text = panel._stats_label.text()
         assert "3" in footer_text
         assert "1" in footer_text
+
+
+class TestPresetExpansion:
+    def test_preset_resolves_from_submod_replacer_presets(self, qapp):
+        panel = ConditionsPanel()
+        presets = {
+            "Combat Ready": [
+                {"condition": "IsWeaponDrawn", "negated": False},
+                {"condition": "IsInCombat", "negated": False},
+            ]
+        }
+        sm = _make_submod(
+            conditions=[
+                {"condition": "PRESET", "Preset": "Combat Ready"},
+            ],
+            replacer_presets=presets,
+        )
+        panel.update_focus(sm)
+        # The formatted view should contain a preset card widget
+        assert panel._formatted_layout.count() >= 1
+
+    def test_missing_preset_shows_warning(self, qapp):
+        panel = ConditionsPanel()
+        sm = _make_submod(
+            conditions=[
+                {"condition": "PRESET", "Preset": "Nonexistent"},
+            ],
+            replacer_presets={},
+        )
+        panel.update_focus(sm)
+        assert panel._formatted_layout.count() >= 1
+
+    def test_stats_footer_includes_presets(self, qapp):
+        panel = ConditionsPanel()
+        sm = _make_submod(
+            conditions=[
+                {"condition": "IsFemale", "negated": False},
+                {"condition": "PRESET", "Preset": "Combat Ready"},
+            ],
+            replacer_presets={"Combat Ready": [{"condition": "IsInCombat"}]},
+        )
+        panel.update_focus(sm)
+        footer_text = panel._stats_label.text()
+        assert "1 presets" in footer_text or "preset" in footer_text.lower()

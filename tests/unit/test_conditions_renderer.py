@@ -253,3 +253,21 @@ class TestConditionsStats:
         assert stats["conditions"] == 3
         assert stats["types"] == 3
         assert stats["negated"] == 1
+
+
+class TestPresetDataFlow:
+    """Integration-style tests verifying presets flow from scanner to TreeNode."""
+
+    def test_tree_node_has_condition_presets_field(self):
+        from oar_priority_manager.ui.tree_model import TreeNode, NodeType
+        node = TreeNode(
+            display_name="test",
+            node_type=NodeType.REPLACER,
+            condition_presets={"Combat": [{"condition": "IsInCombat"}]},
+        )
+        assert node.condition_presets == {"Combat": [{"condition": "IsInCombat"}]}
+
+    def test_tree_node_default_empty_presets(self):
+        from oar_priority_manager.ui.tree_model import TreeNode, NodeType
+        node = TreeNode(display_name="test", node_type=NodeType.MOD)
+        assert node.condition_presets == {}

@@ -62,6 +62,7 @@ def _build_submod(
     submod_folder: str,
     submod_path: Path,
     overwrite_dir: Path,
+    replacer_presets: dict,
 ) -> SubMod:
     """Build a SubMod record for one discovered submod, applying override precedence.
 
@@ -149,6 +150,7 @@ def _build_submod(
         override_is_ours=override_is_ours,
         raw_dict=raw_dict,
         conditions=conditions,
+        replacer_presets=replacer_presets,
         warnings=warnings,
     )
 
@@ -175,7 +177,20 @@ def scan_mods(
     submods: list[SubMod] = []
 
     for mo2_mod, replacer, submod_folder, submod_path in submod_dirs:
-        sm = _build_submod(mo2_mod, replacer, submod_folder, submod_path, overwrite_dir)
+        # Read replacer-level config.json for conditionPresets
+        replacer_dir = submod_path.parent
+        replacer_config_path = replacer_dir / "config.json"
+        replacer_presets: dict = {}
+        if replacer_config_path.is_file():
+            rep_dict, _ = parse_config(replacer_config_path)
+            raw_presets = rep_dict.get("conditionPresets", {})
+            if isinstance(raw_presets, dict):
+                replacer_presets = raw_presets
+
+        sm = _build_submod(
+            mo2_mod, replacer, submod_folder, submod_path,
+            overwrite_dir, replacer_presets,
+        )
         submods.append(sm)
         if on_progress is not None:
             on_progress(len(submods), total)

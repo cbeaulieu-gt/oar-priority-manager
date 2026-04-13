@@ -44,6 +44,8 @@ class TreeNode:
         parent: The parent TreeNode (None for ROOT).
         auto_expand: True when this REPLACER node is the sole replacer
             under its parent MOD — the UI should expand it automatically.
+        condition_presets: conditionPresets dict from the replacer-level
+            config.json. Populated only on REPLACER nodes; empty for others.
     """
 
     display_name: str
@@ -52,6 +54,7 @@ class TreeNode:
     submod: SubMod | None = None
     parent: TreeNode | None = field(default=None, repr=False)
     auto_expand: bool = False
+    condition_presets: dict = field(default_factory=dict)
 
 
 def build_tree(submods: list[SubMod]) -> TreeNode:
@@ -92,11 +95,15 @@ def build_tree(submods: list[SubMod]) -> TreeNode:
 
         # Build REPLACER nodes sorted alphabetically
         for rep_name in sorted(replacer_dict.keys()):
+            # Get presets from first submod in this replacer (all share the same)
+            first_submod = replacer_dict[rep_name][0]
+            rep_presets = getattr(first_submod, "replacer_presets", {})
             rep_node = TreeNode(
                 display_name=rep_name,
                 node_type=NodeType.REPLACER,
                 parent=mod_node,
                 auto_expand=single_replacer,
+                condition_presets=rep_presets,
             )
 
             # Build SUBMOD nodes sorted by priority descending

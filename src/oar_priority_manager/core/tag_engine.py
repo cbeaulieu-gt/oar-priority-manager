@@ -221,6 +221,32 @@ _NON_DISTINCTIVE_CONDITIONS: dict[str, TagCategory] = {
 _FEW_CONDITIONS_THRESHOLD: int = 3
 
 
+_TAG_BY_NAME: dict[str, TagCategory] = {tag.label.lower(): tag for tag in TagCategory}
+
+
+def apply_overrides(submods: list[SubMod], overrides: dict[str, list[str]]) -> None:
+    """Apply tag overrides from config to the in-memory submod list.
+
+    Mutates each submod whose key appears in *overrides* by replacing its
+    ``tags`` with the set described by the override list.
+
+    Args:
+        submods: List of SubMod objects to patch in place.
+        overrides: Mapping of ``"mo2_mod/replacer/name"`` keys to lists of
+            lowercase tag label strings (e.g. ``["combat", "sneak"]``).
+    """
+    if not overrides:
+        return
+    for sm in submods:
+        key = f"{sm.mo2_mod}/{sm.replacer}/{sm.name}"
+        if key in overrides:
+            sm.tags = {
+                _TAG_BY_NAME[n.lower()]
+                for n in overrides[key]
+                if n.lower() in _TAG_BY_NAME
+            }
+
+
 def _layer3_conditions(
     submod: SubMod, existing: set[TagCategory]
 ) -> set[TagCategory]:

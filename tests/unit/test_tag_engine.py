@@ -4,7 +4,7 @@ See design spec docs/superpowers/specs/2026-04-14-category-tags-design.md.
 """
 from __future__ import annotations
 
-from oar_priority_manager.core.tag_engine import TagCategory, compute_tags
+from oar_priority_manager.core.tag_engine import TagCategory, apply_overrides, compute_tags
 from oar_priority_manager.core.models import SubMod, OverrideSource
 from pathlib import Path
 
@@ -373,3 +373,49 @@ class TestComputeTagsMultiLayer:
         assert TagCategory.GENDER in tags   # Layer 1 (female)
         assert TagCategory.COMBAT in tags   # Layer 1 (combat) + Layer 2 (attack anims)
         assert TagCategory.SNEAK in tags    # Layer 3 (IsSneaking)
+
+
+class TestApplyOverrides:
+    def test_override_replaces_auto_tags(self):
+        sm = _make_submod(
+            mo2_mod="Test Mod",
+            replacer="Rep",
+            name="sub1",
+            animations=["1hm_attack1.hkx", "1hm_attack2.hkx", "1hm_attack3.hkx"],
+        )
+        sm.tags = compute_tags(sm)
+        assert TagCategory.COMBAT in sm.tags
+
+        overrides = {"Test Mod/Rep/sub1": ["nsfw", "gender"]}
+        apply_overrides([sm], overrides)
+        assert sm.tags == {TagCategory.NSFW, TagCategory.GENDER}
+
+    def test_no_override_keeps_auto_tags(self):
+        sm = _make_submod(
+            animations=["1hm_attack1.hkx", "1hm_attack2.hkx", "1hm_attack3.hkx"],
+        )
+        sm.tags = compute_tags(sm)
+        original = sm.tags.copy()
+
+        apply_overrides([sm], {})
+        assert sm.tags == original
+
+    def test_override_key_format(self):
+        sm = _make_submod(
+            mo2_mod="My Mod",
+            replacer="MyRep",
+            name="MySub",
+        )
+        sm.tags = compute_tags(sm)
+
+        overrides = {"My Mod/MyRep/MySub": ["sneak"]}
+        apply_overrides([sm], overrides)
+        assert sm.tags == {TagCategory.SNEAK}
+
+    def test_unknown_tag_name_in_override_ignored(self):
+        sm = _make_submod(mo2_mod="Test", replacer="R", name="S")
+        sm.tags = compute_tags(sm)
+
+        overrides = {"Test/R/S": ["combat", "nonexistent_tag"]}
+        apply_overrides([sm], overrides)
+        assert sm.tags == {TagCategory.COMBAT}

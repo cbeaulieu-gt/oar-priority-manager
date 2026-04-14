@@ -129,6 +129,9 @@ class MainWindow(QMainWindow):
         self._search_bar.filter_mode_changed.connect(self._on_filter_mode_changed)
         self._stacks_panel.action_triggered.connect(self._on_action)
         self._stacks_panel.competitor_focused.connect(self._on_competitor_focused)
+        self._stacks_panel.navigate_to_submod.connect(  # issue #60
+            self._on_navigate_to_submod
+        )
 
     def _on_tree_selection(self, node) -> None:
         self._details_panel.update_selection(node)
@@ -141,6 +144,20 @@ class MainWindow(QMainWindow):
         """Update conditions panel when a competitor row is clicked (spec §7.5)."""
         if submod:
             self._conditions_panel.update_focus(submod)
+
+    def _on_navigate_to_submod(self, submod: SubMod) -> None:
+        """Navigate to a competitor submod in the tree panel (issue #60).
+
+        Called when the user selects "Go to in tree" from the right-click
+        context menu on a competitor row.  Delegates to
+        ``TreePanel.select_submod``, which scrolls the tree to the item
+        and fires the ``selection_changed`` signal so the rest of the UI
+        updates consistently.
+
+        Args:
+            submod: The competitor ``SubMod`` to navigate to.
+        """
+        self._tree_panel.select_submod(submod)
 
     def _on_filter_mode_changed(self, hide_mode: bool) -> None:
         """Update the stored hide/dim mode (issued by SearchBar.filter_mode_changed).

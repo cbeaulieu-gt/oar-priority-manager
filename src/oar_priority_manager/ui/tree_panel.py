@@ -280,6 +280,63 @@ class TreePanel(QWidget):
         for i in range(self._tree.topLevelItemCount()):
             _apply(self._tree.topLevelItem(i))
 
+    def select_submod(self, submod: SubMod) -> None:
+        """Select and scroll to a submod in the tree by identity (issue #60).
+
+        Iterates ``_item_map`` looking for the ``QTreeWidgetItem`` whose
+        associated ``TreeNode`` holds a reference to *submod* (identity
+        check, not equality).  When found, the item is programmatically
+        selected (which fires ``currentItemChanged`` → ``selection_changed``)
+        and scrolled into view.  If the submod is not present in the current
+        tree (e.g. the tree has been rebuilt since the stacks panel was last
+        refreshed), this method is a no-op.
+
+        Args:
+            submod: The ``SubMod`` instance to navigate to.
+        """
+        for item_id, node in self._item_map.items():
+            if node.submod is submod:
+                # Locate the QTreeWidgetItem by its Python id key.
+                # We must walk the tree to find the actual item object because
+                # _item_map stores id(item) → node, not item → node.
+                item = self._find_item_by_id(item_id)
+                if item is not None:
+                    self._tree.setCurrentItem(item)
+                    self._tree.scrollToItem(
+                        item,
+                        QTreeWidget.ScrollHint.EnsureVisible,
+                    )
+                return
+
+    def _find_item_by_id(
+        self, target_id: int
+    ) -> QTreeWidgetItem | None:
+        """Return the ``QTreeWidgetItem`` whose ``id()`` equals *target_id*.
+
+        Walks the full tree hierarchy depth-first.  Returns ``None`` if no
+        item with the given id is found.
+
+        Args:
+            target_id: The ``id()`` value of the desired item.
+
+        Returns:
+            The matching ``QTreeWidgetItem``, or ``None``.
+        """
+        def _walk(item: QTreeWidgetItem) -> QTreeWidgetItem | None:
+            if id(item) == target_id:
+                return item
+            for i in range(item.childCount()):
+                result = _walk(item.child(i))
+                if result is not None:
+                    return result
+            return None
+
+        for i in range(self._tree.topLevelItemCount()):
+            result = _walk(self._tree.topLevelItem(i))
+            if result is not None:
+                return result
+        return None
+
     def refresh(self, submods: list[SubMod]) -> None:
         """Refresh tree from new submod data."""
         self._submods = submods

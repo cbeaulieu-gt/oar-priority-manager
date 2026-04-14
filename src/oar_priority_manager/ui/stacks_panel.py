@@ -10,6 +10,7 @@ Issues addressed:
   #46 — Shift by N button
   #47 — Animation filter input
   #48 — Collapse-winning toggle button
+  #60 — Right-click context menu "Go to in tree" on competitor rows
   #61 — Target badge label showing which submod action buttons apply to
   #68 — Action buttons moved to toolbar row
   #69 — Relative/Absolute replaced with segmented toggle control
@@ -25,6 +26,7 @@ from PySide6.QtWidgets import (
     QInputDialog,
     QLabel,
     QLineEdit,
+    QMenu,
     QPushButton,
     QScrollArea,
     QSizePolicy,
@@ -188,6 +190,8 @@ class StacksPanel(QWidget):
     competitor_focused = Signal(object)
     # Emitted when user triggers a priority action: (action_name, submod, value)
     action_triggered = Signal(str, object, object)
+    # Emitted when user right-clicks a competitor and chooses "Go to in tree"
+    navigate_to_submod = Signal(object)  # issue #60
 
     def __init__(
         self,
@@ -598,9 +602,51 @@ class StacksPanel(QWidget):
                 relative_mode=self._relative_mode,
                 on_click=lambda checked=False, c=_comp: self.competitor_focused.emit(c),
             )
+
+            # Right-click "Go to in tree" context menu (issue #60).
+            # Context menu policy is set here (not inside _make_competitor_row)
+            # because the module-level helper has no access to self or signals.
+            row.setContextMenuPolicy(
+                Qt.ContextMenuPolicy.CustomContextMenu
+            )
+            row.customContextMenuRequested.connect(
+                lambda pos, c=_comp: self._show_competitor_context_menu(
+                    row, pos, c
+                )
+            )
+
             section.add_row(row)
 
         return section
+
+    # ------------------------------------------------------------------
+    # Competitor context menu (issue #60)
+    # ------------------------------------------------------------------
+
+    def _show_competitor_context_menu(
+        self,
+        row: QPushButton,
+        pos,
+        comp: SubMod,
+    ) -> None:
+        """Show a right-click context menu on a competitor row.
+
+        Presents a single "Go to in tree" action that emits
+        ``navigate_to_submod`` so the main window can select the
+        corresponding item in the tree panel.
+
+        Args:
+            row: The competitor row button the menu is anchored to.
+            pos: The local position of the right-click (from
+                ``customContextMenuRequested``).
+            comp: The competitor ``SubMod`` this row represents.
+        """
+        menu = QMenu(row)
+        action = menu.addAction("Go to in tree")
+        action.triggered.connect(
+            lambda: self.navigate_to_submod.emit(comp)
+        )
+        menu.exec(row.mapToGlobal(pos))
 
     # ------------------------------------------------------------------
     # Set Exact dialog

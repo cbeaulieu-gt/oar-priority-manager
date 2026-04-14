@@ -10,6 +10,7 @@ Issues addressed:
   #46 — Shift by N button
   #47 — Animation filter input
   #48 — Collapse-winning toggle button
+  #61 — Target badge label showing which submod action buttons apply to
   #68 — Action buttons moved to toolbar row
   #69 — Relative/Absolute replaced with segmented toggle control
 """
@@ -277,6 +278,22 @@ class StacksPanel(QWidget):
         # Spacer between toggle and action buttons
         toolbar.addSpacing(12)
 
+        # -- Target badge: shows which submod the action buttons apply to --
+        # (issue #61) Prevents confusion when clicking competitor rows updates
+        # the conditions panel but actions still target the tree selection.
+        self._target_label = QLabel()
+        self._target_label.setMaximumWidth(300)
+        self._target_label.setWordWrap(False)
+        self._target_label.setTextFormat(Qt.TextFormat.RichText)
+        self._target_label.setToolTip(
+            "The action buttons (Move to Top, Set Exact, etc.) apply to this"
+            " submod, even when a competitor row is highlighted."
+        )
+        self._update_target_label(None)
+        toolbar.addWidget(self._target_label)
+
+        toolbar.addSpacing(8)
+
         # -- Action buttons inlined into toolbar (issue #68) --
         self._move_to_top_btn = QPushButton("Move to Top")
         self._move_to_top_btn.clicked.connect(
@@ -368,9 +385,16 @@ class StacksPanel(QWidget):
         """Update stacks display for the selected submod.
 
         Disables action buttons when the submod has warnings (spec §9) or
-        when no submod is selected.
+        when no submod is selected.  Also refreshes the target badge so
+        the toolbar always shows which submod the action buttons apply to
+        (issue #61).
+
+        Args:
+            submod: The newly selected SubMod, or ``None`` to clear.
         """
         self._current_submod = submod
+        # Update target badge (issue #61)
+        self._update_target_label(submod)
         # Disable action buttons when submod has warnings (spec §9)
         has_warnings = submod.has_warnings if submod else True
         enabled = not has_warnings and submod is not None
@@ -402,6 +426,38 @@ class StacksPanel(QWidget):
         """Refresh display using updated conflict map."""
         self._conflict_map = conflict_map
         self._refresh_display()
+
+    # ------------------------------------------------------------------
+    # Internal: target label (issue #61)
+    # ------------------------------------------------------------------
+
+    def _update_target_label(self, submod: SubMod | None) -> None:
+        """Update the toolbar target badge to reflect the action target.
+
+        When a submod is selected the label reads
+        ``"▸ Actions apply to: <b>SubModName</b>"`` in muted grey.
+        When nothing is selected it shows ``"No submod selected"`` in
+        dim grey so the badge is always present but visually quiet.
+
+        Args:
+            submod: The currently selected SubMod, or ``None`` when
+                nothing is selected.
+        """
+        if submod is None:
+            self._target_label.setText(
+                "<span style='color:#666;'>No submod selected</span>"
+            )
+        else:
+            # Elide long names to keep the toolbar compact.  Qt rich-text
+            # labels do not support built-in elision, so we truncate the
+            # raw name string before embedding it.
+            name = submod.name
+            if len(name) > 40:  # noqa: PLR2004
+                name = name[:37] + "…"
+            self._target_label.setText(
+                f"<span style='color:#aaa;'>&#9656; Actions apply to:"
+                f" <b>{name}</b></span>"
+            )
 
     # ------------------------------------------------------------------
     # Internal: mode toggle

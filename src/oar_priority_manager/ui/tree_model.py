@@ -176,6 +176,16 @@ class SearchIndex:
                 # Register for animation-filename lookups
                 self._submod_node_map[id(node.submod)] = node
 
+                # Index tag names for tag-based search
+                if node.submod.tags:
+                    for tag in node.submod.tags:
+                        tag_result = SearchResult(
+                            display_text=f"[{tag.label}] {node.display_name}",
+                            node_type=node.node_type,
+                            node=node,
+                        )
+                        self._entries.append((tag.label.lower(), tag_result))
+
             for child in node.children:
                 _walk(child)
 

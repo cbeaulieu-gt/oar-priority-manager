@@ -129,3 +129,51 @@ class TestSearchIndex:
         index = SearchIndex(root, {})
         results = index.search("heavy")
         assert len(results) > 0
+
+
+class TestSearchIndexTags:
+    def test_search_by_tag_name(self):
+        """Searching 'combat' should match submods tagged Combat."""
+        from oar_priority_manager.core.tag_engine import TagCategory
+
+        sm = SubMod(
+            mo2_mod="Test Mod",
+            replacer="Rep",
+            name="test_sub",
+            description="",
+            priority=100,
+            source_priority=100,
+            disabled=False,
+            config_path=Path("/fake/config.json"),
+            override_source=OverrideSource.SOURCE,
+            override_is_ours=False,
+            raw_dict={},
+            tags={TagCategory.COMBAT},
+        )
+        root = build_tree([sm])
+        index = SearchIndex(root, {})
+        results = index.search("combat")
+        assert len(results) >= 1
+        assert any(r.node.submod is sm for r in results)
+
+    def test_search_tag_case_insensitive(self):
+        from oar_priority_manager.core.tag_engine import TagCategory
+
+        sm = SubMod(
+            mo2_mod="Test Mod",
+            replacer="Rep",
+            name="test_sub",
+            description="",
+            priority=100,
+            source_priority=100,
+            disabled=False,
+            config_path=Path("/fake/config.json"),
+            override_source=OverrideSource.SOURCE,
+            override_is_ours=False,
+            raw_dict={},
+            tags={TagCategory.NSFW},
+        )
+        root = build_tree([sm])
+        index = SearchIndex(root, {})
+        results = index.search("nsfw")
+        assert len(results) >= 1

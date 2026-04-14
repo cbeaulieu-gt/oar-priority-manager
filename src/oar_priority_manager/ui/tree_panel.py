@@ -7,14 +7,26 @@ from __future__ import annotations
 
 from PySide6.QtCore import Signal
 from PySide6.QtGui import QColor
-from PySide6.QtWidgets import QApplication, QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget
+from PySide6.QtWidgets import (
+    QApplication,
+    QButtonGroup,
+    QHBoxLayout,
+    QPushButton,
+    QTreeWidget,
+    QTreeWidgetItem,
+    QVBoxLayout,
+    QWidget,
+)
 
 from oar_priority_manager.core.models import SubMod
 from oar_priority_manager.ui.tree_model import TreeNode, build_tree
 
 
 class TreePanel(QWidget):
-    """Tree panel: Mod → Replacer → Submod hierarchy with status icons."""
+    """Tree panel: Mod → Replacer → Submod hierarchy with status icons.
+
+    A toolbar at the top provides a Name/Priority sort toggle (issue #45).
+    """
 
     # Emitted when a tree node is selected: the TreeNode itself (or None)
     selection_changed = Signal(object)
@@ -23,23 +35,122 @@ class TreePanel(QWidget):
         super().__init__(parent)
         self._submods = submods
         self._root = build_tree(submods)
+        # False = sort by name (default), True = sort by priority
+        self._sort_by_priority: bool = False
         self._setup_ui()
         self._populate()
 
     def _setup_ui(self) -> None:
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
+
+        # -- Sort toolbar (issue #45) --
+        # Two checkable QPushButtons styled to match the segmented toggle
+        # used in stacks_panel (issue #69 pattern).
+        toolbar = QWidget()
+        toolbar_layout = QHBoxLayout(toolbar)
+        toolbar_layout.setContentsMargins(4, 4, 4, 2)
+        toolbar_layout.setSpacing(0)
+
+        _seg_checked = (
+            "QPushButton:checked {"
+            "  background: #3a3a5a;"
+            "  font-weight: bold;"
+            "  border: 1px solid #5a5a8a;"
+            "}"
+        )
+        _seg_unchecked = (
+            "QPushButton {"
+            "  background: #2a2a2a;"
+            "  border: 1px solid #444;"
+            "  padding: 3px 10px;"
+            "}"
+            "QPushButton:hover { background: #333; }"
+        )
+
+        self._name_btn = QPushButton("Name")
+        self._name_btn.setCheckable(True)
+        self._name_btn.setChecked(True)
+        self._name_btn.setToolTip("Sort mods alphabetically (default)")
+        self._name_btn.setStyleSheet(
+            _seg_unchecked + _seg_checked
+            + "QPushButton { border-radius: 0px;"
+            "  border-top-left-radius: 4px;"
+            "  border-bottom-left-radius: 4px;"
+            "  border-right: none; }"
+        )
+
+        self._priority_btn = QPushButton("Priority")
+        self._priority_btn.setCheckable(True)
+        self._priority_btn.setChecked(False)
+        self._priority_btn.setToolTip(
+            "Sort mods by their highest submod priority (descending)"
+        )
+        self._priority_btn.setStyleSheet(
+            _seg_unchecked + _seg_checked
+            + "QPushButton { border-radius: 0px;"
+            "  border-top-right-radius: 4px;"
+            "  border-bottom-right-radius: 4px; }"
+        )
+
+        # QButtonGroup enforces mutual exclusivity
+        self._sort_group = QButtonGroup(self)
+        self._sort_group.setExclusive(True)
+        self._sort_group.addButton(self._name_btn)
+        self._sort_group.addButton(self._priority_btn)
+
+        self._name_btn.clicked.connect(lambda: self._set_sort(False))
+        self._priority_btn.clicked.connect(lambda: self._set_sort(True))
+
+        toolbar_layout.addWidget(self._name_btn)
+        toolbar_layout.addWidget(self._priority_btn)
+        toolbar_layout.addStretch()
+
+        layout.addWidget(toolbar)
 
         self._tree = QTreeWidget()
         self._tree.setHeaderHidden(True)
         self._tree.currentItemChanged.connect(self._on_selection)
         layout.addWidget(self._tree)
 
+    def _set_sort(self, by_priority: bool) -> None:
+        """Switch between name sort and priority sort and re-populate.
+
+        Args:
+            by_priority: True to sort mod nodes by their highest submod
+                priority descending; False for the default alpha sort.
+        """
+        if self._sort_by_priority == by_priority:
+            return
+        self._sort_by_priority = by_priority
+        self._populate()
+
+    def _sorted_mod_nodes(self) -> list[TreeNode]:
+        """Return mod-level children in the current sort order.
+
+        Name mode: alphabetical by display_name (the order from build_tree).
+        Priority mode: descending by the maximum submod priority across all
+            replacers, so the "most important" mod floats to the top.
+        """
+        if not self._sort_by_priority:
+            return list(self._root.children)
+
+        def _max_priority(mod_node: TreeNode) -> int:
+            best = 0
+            for rep in mod_node.children:
+                for sub in rep.children:
+                    if sub.submod is not None and sub.submod.priority > best:
+                        best = sub.submod.priority
+            return best
+
+        return sorted(self._root.children, key=_max_priority, reverse=True)
+
     def _populate(self) -> None:
         self._tree.clear()
         self._item_map: dict[int, TreeNode] = {}
 
-        for mod_node in self._root.children:
+        for mod_node in self._sorted_mod_nodes():
             mod_item = QTreeWidgetItem([mod_node.display_name])
             self._item_map[id(mod_item)] = mod_node
 
@@ -80,18 +191,25 @@ class TreePanel(QWidget):
         """Return the root TreeNode for use by SearchIndex."""
         return self._root
 
-    def filter_tree(self, matching_nodes: set[int] | None) -> None:
-        """Filter the tree to highlight matching nodes.
+    def filter_tree(
+        self, matching_nodes: set[int] | None, hide_mode: bool = False
+    ) -> None:
+        """Filter the tree to highlight or hide non-matching nodes.
 
         Args:
             matching_nodes: Set of ``id()`` values of matching TreeNodes,
                 or None to clear any active filter and show all items normally.
+            hide_mode: When False (default), non-matching items are dimmed
+                (grey foreground). When True, non-matching items are hidden
+                entirely and matching items plus their ancestors are shown.
         """
         normal_color = QApplication.palette().windowText().color()
         dim_color = QColor(160, 160, 160)
 
         if matching_nodes is None:
-            # Clear filter — restore all items to the default palette color.
+            # Clear filter — restore all items to the default palette color
+            # and make sure nothing is hidden.
+            self._unhide_all()
             self._set_all_colors(normal_color)
             return
 
@@ -114,17 +232,37 @@ class TreePanel(QWidget):
             _add_ancestors(node)
             _add_descendants(node)
 
-        # Walk every QTreeWidgetItem and apply color + expand parents.
+        # Walk every QTreeWidgetItem and apply visibility/color.
         def _apply(item: QTreeWidgetItem) -> None:
             node = self._item_map.get(id(item))
-            if node is not None and id(node) in visible:
-                item.setForeground(0, normal_color)
-                # Ensure parents of matching items are expanded for visibility.
-                parent = item.parent()
-                if parent is not None:
-                    parent.setExpanded(True)
+            is_visible = node is not None and id(node) in visible
+
+            if hide_mode:
+                item.setHidden(not is_visible)
             else:
-                item.setForeground(0, dim_color)
+                # Dim mode: ensure nothing is hidden (may have been set by a
+                # prior hide-mode run), then tint non-matching items grey.
+                item.setHidden(False)
+                if is_visible:
+                    item.setForeground(0, normal_color)
+                    # Expand parents of matching items for visibility.
+                    parent = item.parent()
+                    if parent is not None:
+                        parent.setExpanded(True)
+                else:
+                    item.setForeground(0, dim_color)
+
+            for i in range(item.childCount()):
+                _apply(item.child(i))
+
+        for i in range(self._tree.topLevelItemCount()):
+            _apply(self._tree.topLevelItem(i))
+
+    def _unhide_all(self) -> None:
+        """Recursively ensure every item is visible (clears hide-mode state)."""
+
+        def _apply(item: QTreeWidgetItem) -> None:
+            item.setHidden(False)
             for i in range(item.childCount()):
                 _apply(item.child(i))
 

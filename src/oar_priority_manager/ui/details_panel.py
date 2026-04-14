@@ -113,6 +113,16 @@ class DetailsPanel(QWidget):
             lines.append(
                 f"<span style='color:red'>Disabled: {n_disabled}</span>"
             )
+
+        # Aggregate warnings from all descendant submods
+        n_with_warnings = sum(1 for sm in all_submods if sm.has_warnings)
+        if n_with_warnings:
+            lines.append(
+                f"<span style='color:#e66'>"
+                f"&#9888; {n_with_warnings} submod(s) have warnings"
+                f"</span>"
+            )
+
         return "<br>".join(lines)
 
     def _render_replacer(self, node: TreeNode) -> str:
@@ -159,6 +169,16 @@ class DetailsPanel(QWidget):
         lines.append(
             f"Priority overrides: <b>{n_overridden}</b> of {n_submods} submods"
         )
+
+        # Aggregate warnings from all child submods
+        n_with_warnings = sum(1 for sm in all_submods if sm.has_warnings)
+        if n_with_warnings:
+            lines.append(
+                f"<span style='color:#e66'>"
+                f"&#9888; {n_with_warnings} submod(s) have warnings"
+                f"</span>"
+            )
+
         return "<br>".join(lines)
 
     def _render_submod(self, node: TreeNode) -> str:
@@ -192,6 +212,21 @@ class DetailsPanel(QWidget):
         # Overridden badge
         if submod.is_overridden:
             lines.append("<span style='color:#ccaa00'><b>OVERRIDDEN</b></span>")
+
+        # External override badge — near the top so it's immediately visible
+        if (
+            submod.override_source == OverrideSource.OVERWRITE
+            and not submod.override_is_ours
+        ):
+            lines.append(
+                "<span style='background-color:#3a2800; color:orange'>"
+                "<b>&nbsp;&#9888; EXTERNAL OVERRIDE&nbsp;</b>"
+                "</span>"
+                "<span style='color:#cc8800'>"
+                " &mdash; Priority was changed by another tool or manual edit,"
+                " not by this app"
+                "</span>"
+            )
 
         # Description (optional)
         if submod.description:
@@ -231,14 +266,11 @@ class DetailsPanel(QWidget):
         source_label = _override_source_label(submod.override_source)
         lines.append(f"<span style='color:gray'>{source_label}</span>")
 
-        # External override badge
-        if (
-            submod.override_source == OverrideSource.OVERWRITE
-            and not submod.override_is_ours
-        ):
-            lines.append(
-                "<span style='color:orange'><b>&#9888; EXTERNAL OVERRIDE</b></span>"
-            )
+        # Warnings section — parse errors and validation issues
+        if submod.warnings:
+            lines.append("<br><span style='color:#e66'><b>&#9888; Warnings</b></span>")
+            for warning in submod.warnings:
+                lines.append(f"<span style='color:#e66'>&#8226; {warning}</span>")
 
         return "<br>".join(lines)
 

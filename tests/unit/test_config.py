@@ -76,3 +76,29 @@ class TestAppConfig:
         bad.write_text("not json!", encoding="utf-8")
         loaded = load_config(bad)
         assert loaded.relative_or_absolute == "relative"
+
+
+class TestTagOverrides:
+    def test_tag_overrides_default_empty(self):
+        config = AppConfig()
+        assert config.tag_overrides == {}
+
+    def test_tag_overrides_round_trip(self, tmp_path: Path):
+        config = AppConfig(tag_overrides={
+            "TestMod/Replacer/Sub1": ["combat", "npc"],
+            "OtherMod/Rep/Sub2": ["nsfw"],
+        })
+        path = tmp_path / "config.json"
+        save_config(config, path)
+        loaded = load_config(path)
+        assert loaded.tag_overrides == {
+            "TestMod/Replacer/Sub1": ["combat", "npc"],
+            "OtherMod/Rep/Sub2": ["nsfw"],
+        }
+
+    def test_tag_overrides_missing_from_file(self, tmp_path: Path):
+        """Old config files without tag_overrides should load with empty dict."""
+        path = tmp_path / "config.json"
+        path.write_text('{"submod_sort": "priority"}', encoding="utf-8")
+        loaded = load_config(path)
+        assert loaded.tag_overrides == {}

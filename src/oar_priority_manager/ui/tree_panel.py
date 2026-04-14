@@ -10,6 +10,14 @@ from PySide6.QtGui import QColor
 from PySide6.QtWidgets import QApplication, QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget
 
 from oar_priority_manager.core.models import SubMod
+from oar_priority_manager.core.tag_engine import TagCategory
+from oar_priority_manager.ui.tag_delegate import (
+    TAG_DATA_ROLE,
+    TAG_OVERRIDE_ROLE,
+    TagDelegate,
+    _MAX_MOD_PILLS,
+    sorted_tags,
+)
 from oar_priority_manager.ui.tree_model import TreeNode, build_tree
 
 
@@ -32,6 +40,8 @@ class TreePanel(QWidget):
 
         self._tree = QTreeWidget()
         self._tree.setHeaderHidden(True)
+        self._tag_delegate = TagDelegate(self._tree)
+        self._tree.setItemDelegate(self._tag_delegate)
         self._tree.currentItemChanged.connect(self._on_selection)
         layout.addWidget(self._tree)
 
@@ -57,11 +67,23 @@ class TreePanel(QWidget):
                         icon = "✓"
                     sub_item = QTreeWidgetItem([f"{icon} {sub_node.display_name}"])
                     self._item_map[id(sub_item)] = sub_node
+                    if sm and sm.tags:
+                        sub_item.setData(0, TAG_DATA_ROLE, sm.tags)
                     rep_item.addChild(sub_item)
 
                 mod_item.addChild(rep_item)
                 if rep_node.auto_expand:
                     rep_item.setExpanded(True)
+
+            # Compute mod-level rollup tags (union of all submod tags)
+            mod_tags: set[TagCategory] = set()
+            for rep_node in mod_node.children:
+                for sub_node in rep_node.children:
+                    if sub_node.submod and sub_node.submod.tags:
+                        mod_tags.update(sub_node.submod.tags)
+            if mod_tags:
+                display_tags = sorted_tags(mod_tags)[:_MAX_MOD_PILLS]
+                mod_item.setData(0, TAG_DATA_ROLE, set(display_tags))
 
             self._tree.addTopLevelItem(mod_item)
 

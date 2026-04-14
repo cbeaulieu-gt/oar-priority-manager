@@ -139,3 +139,80 @@ class TestLayer1Keywords:
         sm = _make_submod(mo2_mod="Some Random Mod")
         tags = compute_tags(sm)
         assert len(tags) == 0
+
+
+class TestLayer2Animations:
+    """Layer 2: animation filename pattern voting with 30% threshold."""
+
+    def test_combat_animations(self):
+        anims = [f"1hm_attack{i}.hkx" for i in range(10)]
+        sm = _make_submod(animations=anims)
+        tags = compute_tags(sm)
+        assert TagCategory.COMBAT in tags
+
+    def test_movement_animations(self):
+        anims = ["mt_runforward.hkx", "mt_runbackward.hkx", "mt_walk.hkx"]
+        sm = _make_submod(animations=anims)
+        tags = compute_tags(sm)
+        assert TagCategory.MOVEMENT in tags
+
+    def test_sneak_animations(self):
+        anims = ["mt_sneak_idle.hkx", "sneak_forward.hkx", "sneak_back.hkx"]
+        sm = _make_submod(animations=anims)
+        tags = compute_tags(sm)
+        assert TagCategory.SNEAK in tags
+
+    def test_idle_animations(self):
+        anims = ["mt_idle.hkx", "1hm_idle.hkx", "idle_front.hkx"]
+        sm = _make_submod(animations=anims)
+        tags = compute_tags(sm)
+        assert TagCategory.IDLE in tags
+
+    def test_furniture_animations(self):
+        anims = ["chair_sit.hkx", "sit_idle.hkx", "bed_enter.hkx"]
+        sm = _make_submod(animations=anims)
+        tags = compute_tags(sm)
+        assert TagCategory.FURNITURE in tags
+
+    def test_equipment_animations(self):
+        anims = ["1hm_equip.hkx", "1hm_unequip.hkx", "bow_draw.hkx"]
+        sm = _make_submod(animations=anims)
+        tags = compute_tags(sm)
+        assert TagCategory.EQUIPMENT in tags
+
+    def test_magic_animations(self):
+        anims = ["mlh_cast.hkx", "mrh_cast.hkx", "mt_cast_idle.hkx"]
+        sm = _make_submod(animations=anims)
+        tags = compute_tags(sm)
+        assert TagCategory.MAGIC in tags
+
+    def test_voting_threshold_below_30_percent(self):
+        """1 idle out of 10 combat = 10% idle, should NOT tag Idle."""
+        anims = [f"1hm_attack{i}.hkx" for i in range(9)] + ["mt_idle.hkx"]
+        sm = _make_submod(animations=anims)
+        tags = compute_tags(sm)
+        assert TagCategory.COMBAT in tags
+        assert TagCategory.IDLE not in tags
+
+    def test_voting_threshold_at_30_percent(self):
+        """3 idle out of 10 = 30%, should tag Idle."""
+        anims = [f"1hm_attack{i}.hkx" for i in range(7)] + [
+            "mt_idle.hkx",
+            "idle_front.hkx",
+            "1hm_idle.hkx",
+        ]
+        sm = _make_submod(animations=anims)
+        tags = compute_tags(sm)
+        assert TagCategory.COMBAT in tags
+        assert TagCategory.IDLE in tags
+
+    def test_empty_animations_no_tags(self):
+        sm = _make_submod(animations=[])
+        tags = compute_tags(sm)
+        assert len(tags) == 0
+
+    def test_unrecognized_animations_no_tags(self):
+        anims = ["custom_anim1.hkx", "custom_anim2.hkx"]
+        sm = _make_submod(animations=anims)
+        tags = compute_tags(sm)
+        assert len(tags) == 0

@@ -119,11 +119,70 @@ def _layer1_keywords(submod: SubMod) -> set[TagCategory]:
     return tags
 
 
+# Animation filename patterns for each tag category.
+_ANIM_PATTERNS: list[tuple[list[str], TagCategory]] = [
+    (["_attack", "_block", "_stagger", "_recoil", "_power"], TagCategory.COMBAT),
+    (["_run", "_walk", "_sprint", "_swim", "_jump"], TagCategory.MOVEMENT),
+    (["sneak"], TagCategory.SNEAK),
+    (["_idle", "mt_idle", "idle_"], TagCategory.IDLE),
+    (["_sit", "_chair", "_bed", "_lean"], TagCategory.FURNITURE),
+    (["_equip", "_sheathe", "_draw", "_unequip"], TagCategory.EQUIPMENT),
+    (["_cast", "mlh_", "mrh_"], TagCategory.MAGIC),
+]
+
+_ANIM_VOTE_THRESHOLD: float = 0.30
+
+
+def _classify_animation(filename: str) -> set[TagCategory]:
+    """Classify a single animation filename into zero or more tag categories.
+
+    Args:
+        filename: Animation filename (with or without extension).
+
+    Returns:
+        Set of matching TagCategory values (may be empty).
+    """
+    name = filename.rsplit(".", 1)[0].lower() if "." in filename else filename.lower()
+    matched: set[TagCategory] = set()
+    for patterns, tag in _ANIM_PATTERNS:
+        for pattern in patterns:
+            if pattern in name:
+                matched.add(tag)
+                break
+    return matched
+
+
 def _layer2_animations(
     submod: SubMod, existing: set[TagCategory]
 ) -> set[TagCategory]:
-    """Layer 2: animation filename pattern voting."""
-    return set()
+    """Layer 2: animation filename pattern voting.
+
+    Each animation is classified, then a tag applies only if >= 30% match.
+
+    Args:
+        submod: The SubMod whose animations list will be examined.
+        existing: Tags already assigned by earlier layers (unused here but
+            present for pipeline signature consistency).
+
+    Returns:
+        Set of TagCategory values that met the voting threshold.
+    """
+    if not submod.animations:
+        return set()
+
+    total = len(submod.animations)
+    votes: dict[TagCategory, int] = {}
+
+    for anim in submod.animations:
+        for tag in _classify_animation(anim):
+            votes[tag] = votes.get(tag, 0) + 1
+
+    tags: set[TagCategory] = set()
+    for tag, count in votes.items():
+        if count / total >= _ANIM_VOTE_THRESHOLD:
+            tags.add(tag)
+
+    return tags
 
 
 def _layer3_conditions(

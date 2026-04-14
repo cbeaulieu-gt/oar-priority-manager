@@ -185,8 +185,80 @@ def _layer2_animations(
     return tags
 
 
+# Conditions ignored during tag computation (non-standard plugins, structural).
+_IGNORED_CONDITION_PREFIXES: tuple[str, ...] = ("IED_", "SDS_")
+_IGNORED_CONDITIONS: frozenset[str] = frozenset({"AND", "OR", "PRESET"})
+
+# Distinctive conditions — always count regardless of total condition count.
+_DISTINCTIVE_CONDITIONS: dict[str, TagCategory] = {
+    "IsSneaking": TagCategory.SNEAK,
+    "IsFemale": TagCategory.GENDER,
+    "IsChild": TagCategory.NPC,
+    "IsOnMount": TagCategory.MOVEMENT,
+}
+
+# Non-distinctive conditions — only count if submod has <= 3 unique condition types.
+_NON_DISTINCTIVE_CONDITIONS: dict[str, TagCategory] = {
+    "IsEquippedType": TagCategory.EQUIPMENT,
+    "IsWornInSlotHasKeyword": TagCategory.EQUIPMENT,
+    "IsInCombat": TagCategory.COMBAT,
+    "IsCombatState": TagCategory.COMBAT,
+    "IsAttacking": TagCategory.COMBAT,
+    "IsBlocking": TagCategory.COMBAT,
+    "IsRunning": TagCategory.MOVEMENT,
+    "IsSprinting": TagCategory.MOVEMENT,
+    "HasMagicEffect": TagCategory.MAGIC,
+    "HasSpell": TagCategory.MAGIC,
+    "IsActorBase": TagCategory.NPC,
+    "IsRace": TagCategory.NPC,
+    "IsClass": TagCategory.NPC,
+    "IsVoiceType": TagCategory.NPC,
+    "SitSleepState": TagCategory.FURNITURE,
+    "CurrentFurniture": TagCategory.FURNITURE,
+    "CurrentFurnitureHasKeyword": TagCategory.FURNITURE,
+}
+
+_FEW_CONDITIONS_THRESHOLD: int = 3
+
+
 def _layer3_conditions(
     submod: SubMod, existing: set[TagCategory]
 ) -> set[TagCategory]:
-    """Layer 3: condition type refinement with precondition filter."""
-    return set()
+    """Layer 3: condition type refinement with precondition filter.
+
+    Only adds tags NOT already present from layers 1-2. Distinctive
+    conditions always count; non-distinctive only count when the submod
+    has few unique condition types (likely definitional, not preconditions).
+
+    Args:
+        submod: The SubMod whose condition_types_present will be examined.
+        existing: Tags already assigned by layers 1-2.
+
+    Returns:
+        Set of new TagCategory values not already in existing.
+    """
+    relevant = {
+        ct for ct in submod.condition_types_present
+        if ct not in _IGNORED_CONDITIONS
+        and not any(ct.startswith(p) for p in _IGNORED_CONDITION_PREFIXES)
+    }
+
+    if not relevant:
+        return set()
+
+    tags: set[TagCategory] = set()
+    few_conditions = len(relevant) <= _FEW_CONDITIONS_THRESHOLD
+
+    for ct in relevant:
+        if ct in _DISTINCTIVE_CONDITIONS:
+            tag = _DISTINCTIVE_CONDITIONS[ct]
+            if ct == "IsFemale" and ct in submod.condition_types_negated:
+                continue
+            if tag not in existing:
+                tags.add(tag)
+        elif few_conditions and ct in _NON_DISTINCTIVE_CONDITIONS:
+            tag = _NON_DISTINCTIVE_CONDITIONS[ct]
+            if tag not in existing:
+                tags.add(tag)
+
+    return tags

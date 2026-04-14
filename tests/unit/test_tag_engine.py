@@ -216,3 +216,125 @@ class TestLayer2Animations:
         sm = _make_submod(animations=anims)
         tags = compute_tags(sm)
         assert len(tags) == 0
+
+
+class TestLayer3Conditions:
+    """Layer 3: condition type refinement with precondition filter."""
+
+    def test_distinctive_issneaking_always_tags(self):
+        """IsSneaking is distinctive — tags Sneak even with 8+ condition types."""
+        sm = _make_submod(
+            condition_types_present={
+                "IsSneaking", "IsEquippedType", "IsWornInSlotHasKeyword",
+                "HasMagicEffect", "IsActorBase", "IsClass", "HasPerk",
+                "CompareValues", "HasKeyword",
+            },
+        )
+        tags = compute_tags(sm)
+        assert TagCategory.SNEAK in tags
+
+    def test_distinctive_isfemale_always_tags(self):
+        sm = _make_submod(
+            condition_types_present={"IsFemale", "IsEquippedType", "IsWornInSlotHasKeyword",
+                                      "HasMagicEffect", "IsClass", "HasPerk",
+                                      "CompareValues", "HasKeyword", "IsActorBase"},
+        )
+        tags = compute_tags(sm)
+        assert TagCategory.GENDER in tags
+
+    def test_distinctive_ischild_always_tags_npc(self):
+        sm = _make_submod(
+            condition_types_present={"IsChild", "IsEquippedType", "IsWornInSlotHasKeyword",
+                                      "HasMagicEffect", "IsClass", "HasPerk",
+                                      "CompareValues", "HasKeyword", "IsActorBase"},
+        )
+        tags = compute_tags(sm)
+        assert TagCategory.NPC in tags
+
+    def test_nondistinctive_with_few_conditions_tags(self):
+        """IsEquippedType with <=3 total conditions should tag Equipment."""
+        sm = _make_submod(
+            condition_types_present={"IsEquippedType", "IsWeaponDrawn"},
+        )
+        tags = compute_tags(sm)
+        assert TagCategory.EQUIPMENT in tags
+
+    def test_nondistinctive_with_many_conditions_skipped(self):
+        """IsEquippedType with 8+ total conditions is a precondition — skip."""
+        sm = _make_submod(
+            condition_types_present={
+                "IsEquippedType", "IsWornInSlotHasKeyword", "HasMagicEffect",
+                "IsActorBase", "IsClass", "HasPerk", "CompareValues",
+                "HasKeyword",
+            },
+        )
+        tags = compute_tags(sm)
+        assert TagCategory.EQUIPMENT not in tags
+
+    def test_combat_conditions_few(self):
+        sm = _make_submod(
+            condition_types_present={"IsInCombat", "IsCombatState"},
+        )
+        tags = compute_tags(sm)
+        assert TagCategory.COMBAT in tags
+
+    def test_magic_conditions_few(self):
+        sm = _make_submod(
+            condition_types_present={"HasMagicEffect", "HasSpell"},
+        )
+        tags = compute_tags(sm)
+        assert TagCategory.MAGIC in tags
+
+    def test_npc_conditions_few(self):
+        sm = _make_submod(
+            condition_types_present={"IsActorBase", "IsRace"},
+        )
+        tags = compute_tags(sm)
+        assert TagCategory.NPC in tags
+
+    def test_furniture_conditions_few(self):
+        sm = _make_submod(
+            condition_types_present={"SitSleepState", "CurrentFurniture"},
+        )
+        tags = compute_tags(sm)
+        assert TagCategory.FURNITURE in tags
+
+    def test_movement_distinctive_isonmount(self):
+        sm = _make_submod(
+            condition_types_present={
+                "IsOnMount", "IsEquippedType", "IsWornInSlotHasKeyword",
+                "HasMagicEffect", "IsActorBase", "IsClass", "HasPerk",
+                "CompareValues", "HasKeyword",
+            },
+        )
+        tags = compute_tags(sm)
+        assert TagCategory.MOVEMENT in tags
+
+    def test_layer3_skips_already_tagged(self):
+        """If Layer 1 already tagged Combat, Layer 3 should not re-add it."""
+        sm = _make_submod(
+            mo2_mod="Combat Animation Overhaul",
+            condition_types_present={"IsInCombat"},
+        )
+        tags = compute_tags(sm)
+        assert TagCategory.COMBAT in tags
+
+    def test_ignored_conditions(self):
+        """IED_*, SDS_*, PRESET, AND, OR should not produce tags."""
+        sm = _make_submod(
+            condition_types_present={
+                "IED_GearNodeEquippedPlacementHint", "SDS_IsShieldOnBackEnabled",
+                "PRESET",
+            },
+        )
+        tags = compute_tags(sm)
+        assert len(tags) == 0
+
+    def test_negated_isfemale_skipped(self):
+        """IsFemale that is negated should NOT tag Gender (it's a filter, not purpose)."""
+        sm = _make_submod(
+            condition_types_present={"IsFemale"},
+            condition_types_negated={"IsFemale"},
+        )
+        tags = compute_tags(sm)
+        assert TagCategory.GENDER not in tags

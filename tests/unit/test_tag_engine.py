@@ -338,3 +338,38 @@ class TestLayer3Conditions:
         )
         tags = compute_tags(sm)
         assert TagCategory.GENDER not in tags
+
+
+class TestComputeTagsMultiLayer:
+    """Integration: tags accumulate across layers."""
+
+    def test_keyword_plus_animation_tags(self):
+        """Layer 1 keyword + Layer 2 animation should combine."""
+        sm = _make_submod(
+            mo2_mod="Dynamic Female Weather Idles",
+            animations=["mt_idle.hkx", "idle_front.hkx", "idle_rain.hkx"],
+        )
+        tags = compute_tags(sm)
+        assert TagCategory.GENDER in tags  # Layer 1
+        assert TagCategory.IDLE in tags    # Layer 2
+
+    def test_keyword_plus_condition_tags(self):
+        """Layer 1 + Layer 3 should combine."""
+        sm = _make_submod(
+            mo2_mod="NPC Animation Remix",
+            condition_types_present={"IsSneaking"},
+        )
+        tags = compute_tags(sm)
+        assert TagCategory.NPC in tags    # Layer 1
+        assert TagCategory.SNEAK in tags  # Layer 3
+
+    def test_all_three_layers_combine(self):
+        sm = _make_submod(
+            mo2_mod="Female Combat Pack",
+            animations=["1hm_attack1.hkx", "1hm_attack2.hkx", "1hm_attack3.hkx"],
+            condition_types_present={"IsSneaking"},
+        )
+        tags = compute_tags(sm)
+        assert TagCategory.GENDER in tags   # Layer 1 (female)
+        assert TagCategory.COMBAT in tags   # Layer 1 (combat) + Layer 2 (attack anims)
+        assert TagCategory.SNEAK in tags    # Layer 3 (IsSneaking)

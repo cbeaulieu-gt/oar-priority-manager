@@ -20,6 +20,7 @@ from oar_priority_manager.app.config import (
 )
 from oar_priority_manager.core.anim_scanner import build_conflict_map, scan_animations
 from oar_priority_manager.core.filter_engine import extract_condition_types
+from oar_priority_manager.core.tag_engine import compute_tags
 from oar_priority_manager.core.priority_resolver import build_stacks
 from oar_priority_manager.core.scanner import scan_mods
 
@@ -59,6 +60,7 @@ def run_scan(instance_root: Path) -> tuple:
         present, negated = extract_condition_types(sm.conditions)
         sm.condition_types_present = present
         sm.condition_types_negated = negated
+        sm.tags = compute_tags(sm)
 
     return submods, conflict_map, stacks
 

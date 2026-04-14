@@ -65,9 +65,58 @@ def compute_tags(submod: SubMod) -> set[TagCategory]:
     return tags
 
 
+# Module-level constant: keyword -> TagCategory mapping.
+_KEYWORD_RULES: list[tuple[list[str], TagCategory]] = [
+    # NSFW
+    (
+        [
+            "modesty", "nude", "naked", "nsfw", "adult", "sexlab",
+            "ostim", "pregnancy", "inflation", "flower girl", "billyy", "leito",
+        ],
+        TagCategory.NSFW,
+    ),
+    # Gender — whole-word only (handled by regex in _layer1_keywords)
+    (["female", "male"], TagCategory.GENDER),
+    # NPC — multi-word first
+    (["cart driver", "npc", "children", "child"], TagCategory.NPC),
+    # Sneak
+    (["sneak"], TagCategory.SNEAK),
+    # Combat — multi-word first
+    (
+        ["ashes of war", "boss fight", "combat", "stagger", "block", "dodge"],
+        TagCategory.COMBAT,
+    ),
+    # Movement
+    (["traversal", "clamber", "swimming", "jump"], TagCategory.MOVEMENT),
+]
+
+# Gender keywords need word-boundary matching to avoid "female" in "maleficent".
+_WHOLE_WORD_TAGS: frozenset[TagCategory] = frozenset({TagCategory.GENDER})
+
+
 def _layer1_keywords(submod: SubMod) -> set[TagCategory]:
-    """Layer 1: folder/mod name keyword matching."""
-    return set()
+    """Layer 1: folder/mod name keyword matching.
+
+    Scans mo2_mod, replacer, and name for keyword hits. Gender keywords
+    use whole-word matching; others use substring matching.
+    """
+    tags: set[TagCategory] = set()
+    text = f"{submod.mo2_mod} {submod.replacer} {submod.name}".lower()
+
+    for keywords, tag in _KEYWORD_RULES:
+        if tag in tags:
+            continue
+        for kw in keywords:
+            if tag in _WHOLE_WORD_TAGS:
+                if re.search(rf"\b{re.escape(kw)}\b", text):
+                    tags.add(tag)
+                    break
+            else:
+                if kw in text:
+                    tags.add(tag)
+                    break
+
+    return tags
 
 
 def _layer2_animations(

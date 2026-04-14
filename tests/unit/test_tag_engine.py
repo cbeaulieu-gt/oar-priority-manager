@@ -62,3 +62,80 @@ class TestComputeTagsEmpty:
     def test_empty_submod_returns_empty_set(self):
         sm = _make_submod()
         assert compute_tags(sm) == set()
+
+
+class TestLayer1Keywords:
+    """Layer 1: folder/mod name keyword matching."""
+
+    def test_nsfw_from_mod_name(self):
+        sm = _make_submod(mo2_mod="Dynamic Feminine Female Modesty Animations OAR")
+        tags = compute_tags(sm)
+        assert TagCategory.NSFW in tags
+
+    def test_nsfw_from_submod_name(self):
+        sm = _make_submod(name="nude_both_free")
+        tags = compute_tags(sm)
+        assert TagCategory.NSFW in tags
+
+    def test_nsfw_sexlab_keyword(self):
+        sm = _make_submod(mo2_mod="SexLab Animation Pack")
+        tags = compute_tags(sm)
+        assert TagCategory.NSFW in tags
+
+    def test_gender_female_from_mod_name(self):
+        sm = _make_submod(mo2_mod="Dynamic Female Weather Idles")
+        tags = compute_tags(sm)
+        assert TagCategory.GENDER in tags
+
+    def test_gender_male_from_mod_name(self):
+        sm = _make_submod(mo2_mod="Random Male Wall Leaning Animations")
+        tags = compute_tags(sm)
+        assert TagCategory.GENDER in tags
+
+    def test_gender_no_substring_match(self):
+        """'female' inside 'maleficent' should NOT match."""
+        sm = _make_submod(mo2_mod="Maleficent Anim Pack")
+        tags = compute_tags(sm)
+        assert TagCategory.GENDER not in tags
+
+    def test_npc_from_mod_name(self):
+        sm = _make_submod(mo2_mod="NPC Animation Remix")
+        tags = compute_tags(sm)
+        assert TagCategory.NPC in tags
+
+    def test_npc_children_keyword(self):
+        sm = _make_submod(mo2_mod="Lively Children Animations")
+        tags = compute_tags(sm)
+        assert TagCategory.NPC in tags
+
+    def test_sneak_from_mod_name(self):
+        sm = _make_submod(mo2_mod="Dynamic Relaxed sneak OAR")
+        tags = compute_tags(sm)
+        assert TagCategory.SNEAK in tags
+
+    def test_combat_from_mod_name(self):
+        sm = _make_submod(mo2_mod="Combat Animation Overhaul")
+        tags = compute_tags(sm)
+        assert TagCategory.COMBAT in tags
+
+    def test_combat_dodge_keyword(self):
+        sm = _make_submod(mo2_mod="Nolvus Awakening Dodge Framework")
+        tags = compute_tags(sm)
+        assert TagCategory.COMBAT in tags
+
+    def test_movement_from_mod_name(self):
+        sm = _make_submod(mo2_mod="EVG Animated Traversal")
+        tags = compute_tags(sm)
+        assert TagCategory.MOVEMENT in tags
+
+    def test_multiple_keywords_yield_multiple_tags(self):
+        sm = _make_submod(mo2_mod="Female NPC Sneak Pack")
+        tags = compute_tags(sm)
+        assert TagCategory.GENDER in tags
+        assert TagCategory.NPC in tags
+        assert TagCategory.SNEAK in tags
+
+    def test_no_match_returns_empty(self):
+        sm = _make_submod(mo2_mod="Some Random Mod")
+        tags = compute_tags(sm)
+        assert len(tags) == 0

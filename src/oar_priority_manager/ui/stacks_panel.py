@@ -610,8 +610,8 @@ class StacksPanel(QWidget):
                 Qt.ContextMenuPolicy.CustomContextMenu
             )
             row.customContextMenuRequested.connect(
-                lambda pos, c=_comp: self._show_competitor_context_menu(
-                    row, pos, c
+                lambda pos, c=_comp, r=row: self._show_competitor_context_menu(
+                    r, pos, c
                 )
             )
 

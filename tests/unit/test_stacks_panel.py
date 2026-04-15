@@ -1,9 +1,10 @@
 """Unit tests for StacksPanel toolbar enhancements.
 
-Covers the three new controls added in issues #46, #47, and #48:
+Covers the new controls added in issues #46, #47, #48, and #74:
   #46 — Shift… button and _on_shift dialog
   #47 — Animation filter QLineEdit
   #48 — Hide Winning checkable toggle
+  #74 — Collapse same-mod competitor rows into a summary row
 """
 from __future__ import annotations
 
@@ -11,7 +12,11 @@ from pathlib import Path
 from unittest.mock import patch
 
 from oar_priority_manager.core.models import OverrideSource, SubMod
-from oar_priority_manager.ui.stacks_panel import StacksPanel, _StackSection
+from oar_priority_manager.ui.stacks_panel import (
+    StacksPanel,
+    _ModGroupRow,
+    _StackSection,
+)
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -22,6 +27,7 @@ def _make_submod(
     priority: int = 100,
     animations: list[str] | None = None,
     has_warnings: bool = False,
+    mo2_mod: str = "Test Mod",
 ) -> SubMod:
     """Build a minimal SubMod for testing.
 
@@ -31,12 +37,13 @@ def _make_submod(
         animations: List of animation filenames; defaults to
             ``["mt_idle.hkx"]``.
         has_warnings: When ``True``, adds a dummy warning string.
+        mo2_mod: MO2 mod name used for same-mod grouping tests.
 
     Returns:
         A fully constructed SubMod.
     """
     return SubMod(
-        mo2_mod="Test Mod",
+        mo2_mod=mo2_mod,
         replacer="rep",
         name=name,
         description="",
@@ -412,3 +419,261 @@ class TestCollapseWinning:
 
         sections = _iter_sections(panel)
         assert all(s._expanded for s in sections)
+
+
+# ---------------------------------------------------------------------------
+# Helpers for issue #74 tests
+# ---------------------------------------------------------------------------
+
+def _iter_section_children(section: _StackSection) -> list:
+    """Return all direct child widgets of a _StackSection's content area.
+
+    Args:
+        section: The _StackSection to inspect.
+
+    Returns:
+        A list of direct child QWidget objects in the content layout.
+    """
+    layout = section._content_layout
+    children = []
+    for i in range(layout.count()):
+        item = layout.itemAt(i)
+        if item and item.widget():
+            children.append(item.widget())
+    return children
+
+
+# ---------------------------------------------------------------------------
+# Issue #74 — Collapse same-mod competitor rows
+# ---------------------------------------------------------------------------
+
+class TestCollapseCompetitors:
+    """Tests for same-mod sibling collapsing in stacks panel (issue #74)."""
+
+    def test_same_mod_siblings_create_group_row(self, qtbot):
+        """Same-mod competitors produce a _ModGroupRow summary in the section."""
+        selected = _make_submod(name="sub1", mo2_mod="SneakMod", priority=500,
+                                animations=["mt_idle.hkx"])
+        sibling = _make_submod(name="sub2", mo2_mod="SneakMod", priority=400,
+                               animations=["mt_idle.hkx"])
+        conflict_map = {"mt_idle.hkx": [selected, sibling]}
+        panel = _make_panel(qtbot, conflict_map=conflict_map)
+        panel.update_selection(selected)
+
+        sections = _iter_sections(panel)
+        assert len(sections) == 1
+        children = _iter_section_children(sections[0])
+
+        group_rows = [c for c in children if isinstance(c, _ModGroupRow)]
+        assert len(group_rows) == 1, "Expected exactly one _ModGroupRow for same-mod siblings"
+
+    def test_group_row_label_shows_mod_name_and_count(self, qtbot):
+        """The summary row label reflects the mod name and sibling count."""
+        selected = _make_submod(name="sub1", mo2_mod="SneakMod", priority=500,
+                                animations=["mt_idle.hkx"])
+        sib2 = _make_submod(name="sub2", mo2_mod="SneakMod", priority=400,
+                            animations=["mt_idle.hkx"])
+        sib3 = _make_submod(name="sub3", mo2_mod="SneakMod", priority=300,
+                            animations=["mt_idle.hkx"])
+        conflict_map = {"mt_idle.hkx": [selected, sib2, sib3]}
+        panel = _make_panel(qtbot, conflict_map=conflict_map)
+        panel.update_selection(selected)
+
+        sections = _iter_sections(panel)
+        children = _iter_section_children(sections[0])
+        group_rows = [c for c in children if isinstance(c, _ModGroupRow)]
+        assert len(group_rows) == 1
+        label = group_rows[0]._btn.text()
+        # Label should mention the mod name and sibling count (2 siblings)
+        assert "SneakMod" in label
+        assert "2" in label
+
+    def test_cross_mod_competitors_are_individual_rows(self, qtbot):
+        """Cross-mod competitors do NOT get grouped into a _ModGroupRow."""
+        selected = _make_submod(name="sub1", mo2_mod="SneakMod", priority=500,
+                                animations=["mt_idle.hkx"])
+        other = _make_submod(name="other", mo2_mod="CombatMod", priority=300,
+                             animations=["mt_idle.hkx"])
+        conflict_map = {"mt_idle.hkx": [selected, other]}
+        panel = _make_panel(qtbot, conflict_map=conflict_map)
+        panel.update_selection(selected)
+
+        sections = _iter_sections(panel)
+        children = _iter_section_children(sections[0])
+        group_rows = [c for c in children if isinstance(c, _ModGroupRow)]
+        assert len(group_rows) == 0, "Cross-mod competitor should NOT create a group row"
+
+    def test_you_row_is_direct_section_child_not_in_group(self, qtbot):
+        """'You' row is a direct child of the section — not inside _ModGroupRow."""
+        selected = _make_submod(name="sub1", mo2_mod="SneakMod", priority=500,
+                                animations=["mt_idle.hkx"])
+        sibling = _make_submod(name="sub2", mo2_mod="SneakMod", priority=400,
+                               animations=["mt_idle.hkx"])
+        conflict_map = {"mt_idle.hkx": [selected, sibling]}
+        panel = _make_panel(qtbot, conflict_map=conflict_map)
+        panel.update_selection(selected)
+
+        sections = _iter_sections(panel)
+        children = _iter_section_children(sections[0])
+
+        # The group row exists but holds only the sibling — not the "you" row
+        group_rows = [c for c in children if isinstance(c, _ModGroupRow)]
+        assert len(group_rows) == 1
+        # selected submod's row must NOT be inside the group's child rows
+        assert len(group_rows[0]._child_rows) == 1
+
+    def test_clicking_group_row_toggles_sibling_visibility(self, qtbot):
+        """Clicking the _ModGroupRow summary button toggles the collapsed state and container."""
+        selected = _make_submod(name="sub1", mo2_mod="SneakMod", priority=500,
+                                animations=["mt_idle.hkx"])
+        sibling = _make_submod(name="sub2", mo2_mod="SneakMod", priority=400,
+                               animations=["mt_idle.hkx"])
+        conflict_map = {"mt_idle.hkx": [selected, sibling]}
+        panel = _make_panel(qtbot, conflict_map=conflict_map)
+        panel.update_selection(selected)
+
+        sections = _iter_sections(panel)
+        children = _iter_section_children(sections[0])
+        group_rows = [c for c in children if isinstance(c, _ModGroupRow)]
+        assert len(group_rows) == 1
+        group = group_rows[0]
+
+        # Groups start collapsed — container is explicitly hidden
+        assert group.is_collapsed
+        assert group._child_container.isHidden()
+
+        # Click to expand — collapsed state flips, container no longer hidden
+        group._btn.click()
+        assert not group.is_collapsed
+        assert not group._child_container.isHidden()
+
+        # Click again to collapse — container hidden again
+        group._btn.click()
+        assert group.is_collapsed
+        assert group._child_container.isHidden()
+
+    def test_no_group_when_selected_is_only_submod_from_its_mod(self, qtbot):
+        """No _ModGroupRow is created when no same-mod siblings exist."""
+        selected = _make_submod(name="sub1", mo2_mod="SneakMod", priority=500,
+                                animations=["mt_idle.hkx"])
+        other = _make_submod(name="other", mo2_mod="CombatMod", priority=300,
+                             animations=["mt_idle.hkx"])
+        conflict_map = {"mt_idle.hkx": [selected, other]}
+        panel = _make_panel(qtbot, conflict_map=conflict_map)
+        panel.update_selection(selected)
+
+        sections = _iter_sections(panel)
+        children = _iter_section_children(sections[0])
+        group_rows = [c for c in children if isinstance(c, _ModGroupRow)]
+        assert len(group_rows) == 0
+
+    def test_group_state_persists_across_refresh(self, qtbot):
+        """Expanding a group and calling _refresh_display preserves expanded state."""
+        selected = _make_submod(name="sub1", mo2_mod="SneakMod", priority=500,
+                                animations=["mt_idle.hkx"])
+        sibling = _make_submod(name="sub2", mo2_mod="SneakMod", priority=400,
+                               animations=["mt_idle.hkx"])
+        conflict_map = {"mt_idle.hkx": [selected, sibling]}
+        panel = _make_panel(qtbot, conflict_map=conflict_map)
+        panel.update_selection(selected)
+
+        # Expand the group (it starts collapsed)
+        sections = _iter_sections(panel)
+        children = _iter_section_children(sections[0])
+        group_rows = [c for c in children if isinstance(c, _ModGroupRow)]
+        group_rows[0]._btn.click()  # expand
+
+        # Trigger a refresh
+        panel._refresh_display()
+
+        # Group should still be expanded after refresh
+        sections = _iter_sections(panel)
+        children = _iter_section_children(sections[0])
+        group_rows = [c for c in children if isinstance(c, _ModGroupRow)]
+        assert len(group_rows) == 1
+        assert not group_rows[0].is_collapsed
+
+    def test_sibling_group_contains_correct_child_count(self, qtbot):
+        """The group's _child_rows has exactly the same-mod sibling count."""
+        selected = _make_submod(name="sub1", mo2_mod="SneakMod", priority=500,
+                                animations=["mt_idle.hkx"])
+        sib2 = _make_submod(name="sub2", mo2_mod="SneakMod", priority=400,
+                            animations=["mt_idle.hkx"])
+        sib3 = _make_submod(name="sub3", mo2_mod="SneakMod", priority=300,
+                            animations=["mt_idle.hkx"])
+        cross = _make_submod(name="cross", mo2_mod="CombatMod", priority=200,
+                             animations=["mt_idle.hkx"])
+        conflict_map = {"mt_idle.hkx": [selected, sib2, sib3, cross]}
+        panel = _make_panel(qtbot, conflict_map=conflict_map)
+        panel.update_selection(selected)
+
+        sections = _iter_sections(panel)
+        children = _iter_section_children(sections[0])
+        group_rows = [c for c in children if isinstance(c, _ModGroupRow)]
+        assert len(group_rows) == 1
+        # 2 siblings (sib2, sib3) — "you" (selected) is NOT in the group
+        assert len(group_rows[0]._child_rows) == 2
+
+    def test_rank_and_priority_labels_preserved_for_grouped_rows(self, qtbot):
+        """Grouped sibling rows still carry rank badge and priority value labels."""
+        from PySide6.QtWidgets import QLabel
+
+        selected = _make_submod(name="sub1", mo2_mod="SneakMod", priority=500,
+                                animations=["mt_idle.hkx"])
+        sibling = _make_submod(name="sub2", mo2_mod="SneakMod", priority=400,
+                               animations=["mt_idle.hkx"])
+        conflict_map = {"mt_idle.hkx": [selected, sibling]}
+        panel = _make_panel(qtbot, conflict_map=conflict_map)
+        panel.update_selection(selected)
+
+        sections = _iter_sections(panel)
+        children = _iter_section_children(sections[0])
+        group_rows = [c for c in children if isinstance(c, _ModGroupRow)]
+        assert len(group_rows) == 1
+
+        sibling_row = group_rows[0]._child_rows[0]
+        # Row should have QLabel children (rank badge + priority value + name)
+        labels = sibling_row.findChildren(QLabel)
+        assert len(labels) >= 2, "Grouped rows should still have rank badge and priority labels"
+
+    def test_group_starts_collapsed_by_default(self, qtbot):
+        """A freshly built mod group starts in the collapsed state."""
+        selected = _make_submod(name="sub1", mo2_mod="SneakMod", priority=500,
+                                animations=["mt_idle.hkx"])
+        sibling = _make_submod(name="sub2", mo2_mod="SneakMod", priority=400,
+                               animations=["mt_idle.hkx"])
+        conflict_map = {"mt_idle.hkx": [selected, sibling]}
+        panel = _make_panel(qtbot, conflict_map=conflict_map)
+        panel.update_selection(selected)
+
+        sections = _iter_sections(panel)
+        children = _iter_section_children(sections[0])
+        group_rows = [c for c in children if isinstance(c, _ModGroupRow)]
+        assert len(group_rows) == 1
+        assert group_rows[0].is_collapsed
+        assert group_rows[0]._child_container.isHidden()
+
+    def test_mixed_same_and_cross_mod(self, qtbot):
+        """Mixed scenario: same-mod siblings collapsed, cross-mod rows individual."""
+        from PySide6.QtWidgets import QPushButton
+
+        selected = _make_submod(name="sub1", mo2_mod="SneakMod", priority=500,
+                                animations=["mt_idle.hkx"])
+        sibling = _make_submod(name="sub2", mo2_mod="SneakMod", priority=400,
+                               animations=["mt_idle.hkx"])
+        cross = _make_submod(name="cross", mo2_mod="CombatMod", priority=300,
+                             animations=["mt_idle.hkx"])
+        conflict_map = {"mt_idle.hkx": [selected, sibling, cross]}
+        panel = _make_panel(qtbot, conflict_map=conflict_map)
+        panel.update_selection(selected)
+
+        sections = _iter_sections(panel)
+        children = _iter_section_children(sections[0])
+
+        group_rows = [c for c in children if isinstance(c, _ModGroupRow)]
+        direct_buttons = [c for c in children if isinstance(c, QPushButton)]
+
+        # Exactly one group (same-mod sibling), one cross-mod individual button,
+        # plus the "you" button
+        assert len(group_rows) == 1, "Same-mod sibling must be in one group"
+        assert len(direct_buttons) == 2, "Cross-mod + 'you' should be direct buttons"

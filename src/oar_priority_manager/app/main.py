@@ -20,9 +20,9 @@ from oar_priority_manager.app.config import (
 )
 from oar_priority_manager.core.anim_scanner import build_conflict_map, scan_animations
 from oar_priority_manager.core.filter_engine import extract_condition_types
-from oar_priority_manager.core.tag_engine import apply_overrides, compute_tags
 from oar_priority_manager.core.priority_resolver import build_stacks
 from oar_priority_manager.core.scanner import scan_mods
+from oar_priority_manager.core.tag_engine import apply_overrides, compute_tags
 
 logger = logging.getLogger(__name__)
 

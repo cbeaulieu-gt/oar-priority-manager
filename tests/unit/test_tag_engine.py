@@ -4,9 +4,10 @@ See design spec docs/superpowers/specs/2026-04-14-category-tags-design.md.
 """
 from __future__ import annotations
 
-from oar_priority_manager.core.tag_engine import TagCategory, apply_overrides, compute_tags
-from oar_priority_manager.core.models import SubMod, OverrideSource
 from pathlib import Path
+
+from oar_priority_manager.core.models import OverrideSource, SubMod
+from oar_priority_manager.core.tag_engine import TagCategory, apply_overrides, compute_tags
 
 
 def _make_submod(

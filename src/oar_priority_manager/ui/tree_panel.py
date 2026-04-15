@@ -20,10 +20,10 @@ from oar_priority_manager.app.config import AppConfig
 from oar_priority_manager.core.models import SubMod
 from oar_priority_manager.core.tag_engine import TagCategory
 from oar_priority_manager.ui.tag_delegate import (
+    _MAX_MOD_PILLS,
     TAG_DATA_ROLE,
     TAG_OVERRIDE_ROLE,
     TagDelegate,
-    _MAX_MOD_PILLS,
     sorted_tags,
 )
 from oar_priority_manager.ui.tag_edit_dialog import TagEditDialog

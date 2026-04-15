@@ -45,10 +45,15 @@ class SubMod:
     raw_dict: dict
     animations: list[str] = field(default_factory=list)
     conditions: dict = field(default_factory=dict)
+    # conditionPresets from the replacer-level config.json.
+    # Stored per-submod so it's available without needing the replacer path.
+    replacer_presets: dict = field(default_factory=dict)
     # Populated by filter_engine.py (Task 9). Empty until that module exists.
     condition_types_present: set[str] = field(default_factory=set)
     condition_types_negated: set[str] = field(default_factory=set)
     warnings: list[str] = field(default_factory=list)
+    # Populated by tag_engine.py (Task 5). Empty until compute_tags is called.
+    tags: set = field(default_factory=set)
 
     def __eq__(self, other: object) -> bool:
         """Two SubMods are equal if they point to the same config.json."""

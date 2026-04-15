@@ -207,3 +207,98 @@ class TestNameAndDescription:
         # Name/description come from config.json per OAR §4
         assert submods[0].name == "config_name"
         assert submods[0].description == "config_desc"
+
+
+class TestReplacerPresets:
+    """Scanner converts conditionPresets to a dict keyed by name."""
+
+    def test_presets_as_list_converted_to_dict(self, tmp_instance: Path):
+        """Real OAR format: conditionPresets is a list of {name, conditions} objects."""
+        replacer_dir = (
+            tmp_instance / "mods" / "ModA" / OAR_REL / "ReplacerA"
+        )
+        replacer_dir.mkdir(parents=True)
+        replacer_config = {
+            "conditionPresets": [
+                {
+                    "name": "Malignis_Base",
+                    "conditions": [{"condition": "IsFemale", "requiredVersion": "1.0.0.0"}],
+                },
+                {
+                    "name": "Malignis_Dungeon",
+                    "conditions": [{"condition": "IsInCombat", "requiredVersion": "1.0.0.0"}],
+                },
+            ]
+        }
+        (replacer_dir / "config.json").write_text(
+            json.dumps(replacer_config), encoding="utf-8"
+        )
+        make_submod_dir(
+            tmp_instance / "mods", "ModA", "ReplacerA", "sub1",
+            config=make_config_json(name="sub1", priority=100),
+        )
+        submods = scan_mods(tmp_instance / "mods", tmp_instance / "overwrite")
+        presets = submods[0].replacer_presets
+        assert isinstance(presets, dict)
+        assert set(presets.keys()) == {"Malignis_Base", "Malignis_Dungeon"}
+        assert presets["Malignis_Base"] == [
+            {"condition": "IsFemale", "requiredVersion": "1.0.0.0"}
+        ]
+        assert presets["Malignis_Dungeon"] == [
+            {"condition": "IsInCombat", "requiredVersion": "1.0.0.0"}
+        ]
+
+    def test_presets_as_dict_kept_as_is(self, tmp_instance: Path):
+        """Legacy/test-fixture format: conditionPresets already a dict — pass through."""
+        replacer_dir = (
+            tmp_instance / "mods" / "ModA" / OAR_REL / "ReplacerA"
+        )
+        replacer_dir.mkdir(parents=True)
+        replacer_config = {
+            "conditionPresets": {
+                "MyPreset": [{"condition": "IsFemale"}],
+            }
+        }
+        (replacer_dir / "config.json").write_text(
+            json.dumps(replacer_config), encoding="utf-8"
+        )
+        make_submod_dir(
+            tmp_instance / "mods", "ModA", "ReplacerA", "sub1",
+            config=make_config_json(name="sub1", priority=100),
+        )
+        submods = scan_mods(tmp_instance / "mods", tmp_instance / "overwrite")
+        assert submods[0].replacer_presets == {"MyPreset": [{"condition": "IsFemale"}]}
+
+    def test_preset_list_entry_missing_conditions_skipped(self, tmp_instance: Path):
+        """Malformed list entries (no 'conditions' or 'Conditions' key) are skipped."""
+        replacer_dir = (
+            tmp_instance / "mods" / "ModA" / OAR_REL / "ReplacerA"
+        )
+        replacer_dir.mkdir(parents=True)
+        replacer_config = {
+            "conditionPresets": [
+                {"name": "Good", "conditions": [{"condition": "IsFemale"}]},
+                {"name": "Bad"},   # no conditions key
+                "not_a_dict",      # not a dict at all
+            ]
+        }
+        (replacer_dir / "config.json").write_text(
+            json.dumps(replacer_config), encoding="utf-8"
+        )
+        make_submod_dir(
+            tmp_instance / "mods", "ModA", "ReplacerA", "sub1",
+            config=make_config_json(name="sub1", priority=100),
+        )
+        submods = scan_mods(tmp_instance / "mods", tmp_instance / "overwrite")
+        assert submods[0].replacer_presets == {
+            "Good": [{"condition": "IsFemale"}]
+        }
+
+    def test_no_replacer_config_gives_empty_presets(self, tmp_instance: Path):
+        """When there is no replacer-level config.json, presets are empty."""
+        make_submod_dir(
+            tmp_instance / "mods", "ModA", "ReplacerA", "sub1",
+            config=make_config_json(name="sub1", priority=100),
+        )
+        submods = scan_mods(tmp_instance / "mods", tmp_instance / "overwrite")
+        assert submods[0].replacer_presets == {}

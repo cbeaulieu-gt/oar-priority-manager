@@ -14,6 +14,7 @@ Issues addressed:
   #61 — Target badge label showing which submod action buttons apply to
   #68 — Action buttons moved to toolbar row
   #69 — Relative/Absolute replaced with segmented toggle control
+  #74 — Collapse same-mod competitor rows into a single summary row
 """
 
 from __future__ import annotations
@@ -180,6 +181,102 @@ def _make_competitor_row(
 
 
 # ---------------------------------------------------------------------------
+# Helper widget: collapsible same-mod sibling group (issue #74)
+# ---------------------------------------------------------------------------
+
+class _ModGroupRow(QWidget):
+    """A clickable summary row that collapses/expands same-mod sibling rows.
+
+    Rendered as a sub-header inside a ``_StackSection`` when more than one
+    submod from the same MO2 mod appears in the competitor list.  Individual
+    sibling rows are stored as children and toggled on click.
+
+    Args:
+        mod_name: The MO2 mod name used as the group label.
+        sibling_count: Number of sibling submods in the group (excluding the
+            "you" row, which is always visible outside the group).
+        collapsed: Initial collapsed state.  Defaults to ``True`` so groups
+            start collapsed and the panel stays compact.
+        parent: Optional parent widget.
+    """
+
+    def __init__(
+        self,
+        mod_name: str,
+        sibling_count: int,
+        collapsed: bool = True,
+        parent: QWidget | None = None,
+    ) -> None:
+        super().__init__(parent)
+        self._collapsed = collapsed
+        self._mod_name = mod_name
+        self._sibling_count = sibling_count
+        self._child_rows: list[QWidget] = []
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
+
+        # Summary button — acts as the toggle handle
+        self._btn = QPushButton()
+        self._btn.setFlat(True)
+        self._btn.setStyleSheet(
+            "QPushButton { text-align: left; padding: 2px 8px;"
+            "  color: #8ab; font-style: italic; }"
+            "QPushButton:hover { background: rgba(255,255,255,0.05); }"
+        )
+        self._btn.setSizePolicy(
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed
+        )
+        self._btn.clicked.connect(self._toggle)
+        layout.addWidget(self._btn)
+
+        # Container for child rows
+        self._child_container = QWidget()
+        self._child_layout = QVBoxLayout(self._child_container)
+        self._child_layout.setContentsMargins(0, 0, 0, 0)
+        self._child_layout.setSpacing(1)
+        layout.addWidget(self._child_container)
+
+        self._update_label()
+        self._child_container.setVisible(not self._collapsed)
+
+    # ------------------------------------------------------------------
+    # Public helpers
+    # ------------------------------------------------------------------
+
+    def add_child_row(self, row_widget: QWidget) -> None:
+        """Append a sibling competitor row to this group's child container.
+
+        Args:
+            row_widget: The competitor row widget to add.
+        """
+        self._child_rows.append(row_widget)
+        self._child_layout.addWidget(row_widget)
+
+    @property
+    def is_collapsed(self) -> bool:
+        """Whether the group is currently collapsed."""
+        return self._collapsed
+
+    # ------------------------------------------------------------------
+    # Internal
+    # ------------------------------------------------------------------
+
+    def _toggle(self) -> None:
+        self._collapsed = not self._collapsed
+        self._child_container.setVisible(not self._collapsed)
+        self._update_label()
+
+    def _update_label(self) -> None:
+        arrow = "▸" if self._collapsed else "▾"
+        noun = "sibling" if self._sibling_count == 1 else "siblings"
+        self._btn.setText(
+            f"{arrow} {self._mod_name} ({self._sibling_count} {noun})"
+        )
+
+
+# ---------------------------------------------------------------------------
 # Main panel
 # ---------------------------------------------------------------------------
 
@@ -203,6 +300,8 @@ class StacksPanel(QWidget):
         self._current_submod: SubMod | None = None
         self._relative_mode = True
         self._collapsed: dict[str, bool] = {}  # anim -> collapsed state (issue #35)
+        # Keyed by f"{anim}:{mo2_mod}" — persists expand/collapse across refreshes
+        self._mod_group_collapsed: dict[str, bool] = {}  # issue #74
         self._setup_ui()
 
     # ------------------------------------------------------------------
@@ -577,7 +676,42 @@ class StacksPanel(QWidget):
         section._header_btn.clicked.disconnect()
         section._header_btn.clicked.connect(_patched_toggle)
 
-        # Competitor rows
+        # ---- Competitor rows with same-mod grouping (issue #74) ----
+        # Competitors from the same MO2 mod as the selected submod are grouped
+        # into a collapsible _ModGroupRow.  Cross-mod competitors remain as
+        # individual rows.  The "you" row is always rendered outside the group.
+        selected_mod = selected.mo2_mod
+
+        # Count how many competitors share the selected submod's MO2 mod
+        # (excluding the selected submod itself) to decide whether to group.
+        same_mod_siblings = [
+            c for c in competitors if c.mo2_mod == selected_mod and c is not selected
+        ]
+        use_group = len(same_mod_siblings) > 0
+
+        # Build the _ModGroupRow once if needed so sibling rows can be added to it.
+        group_row: _ModGroupRow | None = None
+        group_inserted = False  # track whether the group widget is in the section yet
+
+        if use_group:
+            state_key = f"{anim}:{selected_mod}"
+            initial_collapsed = self._mod_group_collapsed.get(state_key, True)
+            group_row = _ModGroupRow(
+                mod_name=selected_mod,
+                sibling_count=len(same_mod_siblings),
+                collapsed=initial_collapsed,
+            )
+
+            # Persist state changes back to _mod_group_collapsed
+            def _on_group_toggle(
+                *,
+                gr: _ModGroupRow = group_row,
+                key: str = state_key,
+            ) -> None:
+                self._mod_group_collapsed[key] = gr.is_collapsed
+
+            group_row._btn.clicked.connect(_on_group_toggle)
+
         for i, comp in enumerate(competitors):
             is_you = comp is selected
             rank_num = i + 1
@@ -615,7 +749,24 @@ class StacksPanel(QWidget):
                 )
             )
 
-            section.add_row(row)
+            # Route row into the correct container (issue #74):
+            #   - "you" row: always goes directly into the section (always visible)
+            #   - Same-mod sibling: routed into the group's child container
+            #   - Cross-mod competitor: goes directly into the section
+            if is_you:
+                # The "you" row is always visible — never hidden inside the group
+                section.add_row(row)
+            elif use_group and comp.mo2_mod == selected_mod:
+                # Same-mod sibling: insert group header before first sibling row,
+                # then add this row as a child of the group.
+                assert group_row is not None  # guaranteed by use_group
+                if not group_inserted:
+                    section.add_row(group_row)
+                    group_inserted = True
+                group_row.add_child_row(row)
+            else:
+                # Cross-mod competitor: individual row, no grouping
+                section.add_row(row)
 
         return section
 

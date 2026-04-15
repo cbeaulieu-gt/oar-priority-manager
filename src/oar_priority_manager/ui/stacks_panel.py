@@ -12,6 +12,7 @@ Issues addressed:
   #48 — Collapse-winning toggle button
   #60 — Right-click context menu "Go to in tree" on competitor rows
   #61 — Target badge label showing which submod action buttons apply to
+  #66 — Loading indicator and caching for large priority stacks
   #68 — Action buttons moved to toolbar row
   #69 — Relative/Absolute replaced with segmented toggle control
   #74 — Collapse same-mod competitor rows into a single summary row
@@ -21,6 +22,7 @@ from __future__ import annotations
 
 from PySide6.QtCore import Qt, QTimer, Signal
 from PySide6.QtWidgets import (
+    QApplication,
     QButtonGroup,
     QFrame,
     QHBoxLayout,
@@ -302,6 +304,12 @@ class StacksPanel(QWidget):
         self._collapsed: dict[str, bool] = {}  # anim -> collapsed state (issue #35)
         # Keyed by f"{anim}:{mo2_mod}" — persists expand/collapse across refreshes
         self._mod_group_collapsed: dict[str, bool] = {}  # issue #74
+        # Cache of built _StackSection widgets keyed by
+        # (mo2_mod, replacer, name, relative_mode).  Populated on first
+        # display_stack() call; invalidated via clear_cache() (issue #66).
+        self._stack_cache: dict[
+            tuple[str, str, str, bool], list[_StackSection]
+        ] = {}
         self._setup_ui()
 
     # ------------------------------------------------------------------
@@ -480,6 +488,22 @@ class StacksPanel(QWidget):
         self._scroll.setWidget(self._content)
         layout.addWidget(self._scroll)
 
+        # ---- Loading placeholder (issue #66) ----
+        # Shown briefly while a large stack is being built from scratch
+        # (i.e. on cache miss).  Hidden once the real content is in place.
+        self._loading_label = QLabel("Loading\u2026")
+        self._loading_label.setAlignment(
+            Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignVCenter
+        )
+        self._loading_label.setStyleSheet(
+            "color: #888; font-style: italic; padding: 24px;"
+        )
+        self._loading_label.hide()
+        # Insert it into the outer layout BEFORE the scroll area so it
+        # overlays the header area — we instead add it into the content
+        # layout and manage it there.
+        self._content_layout.addWidget(self._loading_label)
+
     # ------------------------------------------------------------------
     # Public API (preserved from original)
     # ------------------------------------------------------------------
@@ -530,6 +554,16 @@ class StacksPanel(QWidget):
         self._conflict_map = conflict_map
         self._refresh_display()
 
+    def clear_cache(self) -> None:
+        """Invalidate the built-stack cache (issue #66).
+
+        Must be called by the owning window whenever the underlying priority
+        data changes (action applied, overrides cleared, full reload) so that
+        the next ``update_selection`` call rebuilds from the new data rather
+        than serving stale cached widgets.
+        """
+        self._stack_cache.clear()
+
     # ------------------------------------------------------------------
     # Internal: target label (issue #61)
     # ------------------------------------------------------------------
@@ -578,11 +612,51 @@ class StacksPanel(QWidget):
     # ------------------------------------------------------------------
 
     def _refresh_display(self) -> None:
-        # Clear existing content widgets
+        """Rebuild or restore the stacks scroll area for the current submod.
+
+        Cache behaviour (issue #66):
+          - On cache hit: sections are re-parented directly into the layout
+            with no loading indicator.
+          - On cache miss: a "Loading..." label is shown immediately and
+            ``QApplication.processEvents()`` is called to paint it before
+            the (potentially slow) build loop runs.  Results are cached
+            under a key of ``(mo2_mod, replacer, name, relative_mode)``
+            so re-selecting the same submod in the same display mode is
+            instant.
+        """
+        # Collect all cached section widgets across every cache entry so we
+        # can distinguish them from freshly-built or stale widgets during
+        # the clear loop below.
+        all_cached: set[int] = {
+            id(sec)
+            for sections in self._stack_cache.values()
+            for sec in sections
+        }
+
+        # Clear existing content widgets from the layout.
+        # - The loading label is always preserved (it is re-inserted at
+        #   position 0 by insertWidget below).
+        # - Cached _StackSection widgets are simply un-parented from the
+        #   layout without deletion — they will be re-added on a cache hit.
+        # - Any other widget (stretch spacers, config-only info labels, etc.)
+        #   is deleted.
         while self._content_layout.count():
             child = self._content_layout.takeAt(0)
-            if child.widget():
-                child.widget().deleteLater()
+            w = child.widget()
+            if w is None:
+                # Layout spacer item — no widget to manage.
+                continue
+            if w is self._loading_label or id(w) in all_cached:
+                # Keep: loading label stays owned by us; cached sections are
+                # preserved so they can be re-inserted on a cache hit.
+                w.setParent(None)  # type: ignore[call-overload]
+            else:
+                w.deleteLater()
+
+        # Always re-add the loading label at position 0 so it can be shown
+        # before the build starts on a cache miss.
+        self._loading_label.hide()
+        self._content_layout.insertWidget(0, self._loading_label)
 
         sm = self._current_submod
         if sm is None:
@@ -591,14 +665,14 @@ class StacksPanel(QWidget):
 
         self._header.setText(f"<b>Priority Stacks</b> · <code>{sm.name}</code>")
 
-        # Config-only submods have no animations and don't compete in any stack.
-        # Show an explanatory message instead of an empty scroll area so the
-        # user doesn't assume something is broken.
+        # Config-only submods have no animations and don't compete in any
+        # stack.  Show an explanatory message instead of an empty scroll area
+        # so the user doesn't assume something is broken.
         if sm.is_config_only:
             info = QLabel(
-                "This submod is a config-only toggle. It has no animations and does"
-                " not compete in priority stacks. Other submods may reference it via"
-                " IsReplacerEnabled conditions."
+                "This submod is a config-only toggle. It has no animations"
+                " and does not compete in priority stacks. Other submods may"
+                " reference it via IsReplacerEnabled conditions."
             )
             info.setWordWrap(True)
             info.setTextFormat(Qt.TextFormat.PlainText)
@@ -607,10 +681,32 @@ class StacksPanel(QWidget):
             self._content_layout.addStretch()
             return
 
-        for anim in sm.animations:
-            competitors = self._conflict_map.get(anim, [])
-            section = self._build_stack_section(anim, competitors, sm)
-            self._content_layout.addWidget(section)
+        # --- Cache lookup (issue #66) ---
+        cache_key = (sm.mo2_mod, sm.replacer, sm.name, self._relative_mode)
+        cached = self._stack_cache.get(cache_key)
+
+        if cached is not None:
+            # Cache hit — restore sections directly, no loading label needed.
+            for section in cached:
+                self._content_layout.addWidget(section)
+        else:
+            # Cache miss — show "Loading…" immediately so the UI gives
+            # visual feedback while the build loop runs.
+            self._loading_label.show()
+            QApplication.processEvents()
+
+            sections: list[_StackSection] = []
+            for anim in sm.animations:
+                competitors = self._conflict_map.get(anim, [])
+                section = self._build_stack_section(anim, competitors, sm)
+                sections.append(section)
+                self._content_layout.addWidget(section)
+
+            # Hide the loading label now that content is in the layout.
+            self._loading_label.hide()
+
+            # Store in cache for future re-selections.
+            self._stack_cache[cache_key] = sections
 
         self._content_layout.addStretch()
 

@@ -378,9 +378,12 @@ class MainWindow(QMainWindow):
             for sm, new_p in new_priorities.items():
                 write_override(sm, new_p, overwrite_dir)
 
-            # Refresh stacks display (in-memory, no re-scan)
+            # Refresh stacks display (in-memory, no re-scan).
+            # Invalidate the cache first (issue #66) so the rebuilt conflict
+            # map is used rather than stale pre-mutation widgets.
             self._conflict_map = build_conflict_map(self._submods)
             self._stacks = build_stacks(self._conflict_map)
+            self._stacks_panel.clear_cache()
             self._stacks_panel.refresh(self._conflict_map)
             self._stacks_panel.update_selection(submod)
             self._tree_panel.refresh(self._submods)
@@ -480,6 +483,8 @@ class MainWindow(QMainWindow):
         apply_overrides(self._submods, self._config.tag_overrides)
 
         self._tree_panel.refresh(self._submods)
+        # Full data reload — all cached stack widgets are stale (issue #66).
+        self._stacks_panel.clear_cache()
         self._stacks_panel.refresh(self._conflict_map)
 
     def _apply_config(self) -> None:

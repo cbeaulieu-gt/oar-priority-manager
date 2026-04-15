@@ -132,7 +132,6 @@ class TestGroupCollapsibility:
     def _find_group_header(self, panel):
         """Return the first QLabel whose text starts with the AND arrow."""
         from PySide6.QtWidgets import QLabel
-        from PySide6.QtCore import Qt
 
         def _search(widget):
             for child in widget.findChildren(QLabel):
@@ -145,7 +144,7 @@ class TestGroupCollapsibility:
 
     def _find_children_widget(self, panel):
         """Return the first non-header QWidget inside the formatted content."""
-        from PySide6.QtWidgets import QWidget, QLabel
+        from PySide6.QtWidgets import QLabel
 
         # The children_widget is a QWidget added directly to
         # _formatted_layout right after the header label.

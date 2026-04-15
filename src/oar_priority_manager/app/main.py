@@ -22,6 +22,7 @@ from oar_priority_manager.core.anim_scanner import build_conflict_map, scan_anim
 from oar_priority_manager.core.filter_engine import extract_condition_types
 from oar_priority_manager.core.priority_resolver import build_stacks
 from oar_priority_manager.core.scanner import scan_mods
+from oar_priority_manager.core.tag_engine import apply_overrides, compute_tags
 
 logger = logging.getLogger(__name__)
 
@@ -59,6 +60,7 @@ def run_scan(instance_root: Path) -> tuple:
         present, negated = extract_condition_types(sm.conditions)
         sm.condition_types_present = present
         sm.condition_types_negated = negated
+        sm.tags = compute_tags(sm)
 
     return submods, conflict_map, stacks
 
@@ -87,6 +89,7 @@ def main(argv: list[str] | None = None) -> int:
     app_config = load_config(config_path)
 
     submods, conflict_map, stacks = run_scan(instance_root)
+    apply_overrides(submods, app_config.tag_overrides)
     logger.info("Loaded %d submods, %d animation stacks", len(submods), len(stacks))
 
     # Force the native Windows platform plugin.  pytest-qt sets

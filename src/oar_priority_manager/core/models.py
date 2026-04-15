@@ -52,6 +52,8 @@ class SubMod:
     condition_types_present: set[str] = field(default_factory=set)
     condition_types_negated: set[str] = field(default_factory=set)
     warnings: list[str] = field(default_factory=list)
+    # Populated by tag_engine.py (Task 5). Empty until compute_tags is called.
+    tags: set = field(default_factory=set)
 
     def __eq__(self, other: object) -> bool:
         """Two SubMods are equal if they point to the same config.json."""

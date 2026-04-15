@@ -26,6 +26,7 @@ class AppConfig:
     splitter_positions: list[int] = field(default_factory=list)
     search_history: list[str] = field(default_factory=list)
     last_selected_path: str = ""
+    tag_overrides: dict = field(default_factory=dict)
 
 
 def detect_instance_root(
@@ -106,6 +107,7 @@ def load_config(path: Path) -> AppConfig:
             splitter_positions=data.get("splitter_positions", []),
             search_history=data.get("search_history", []),
             last_selected_path=data.get("last_selected_path", ""),
+            tag_overrides=data.get("tag_overrides", {}),
         )
     except (json.JSONDecodeError, OSError):
         logger.warning("Corrupt config at %s, using defaults", path)

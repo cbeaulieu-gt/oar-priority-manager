@@ -123,6 +123,15 @@ class DetailsPanel(QWidget):
                 f"</span>"
             )
 
+        # Rollup tag pills from all descendant submods
+        mod_tags: set = set()
+        for rep in node.children:
+            for sub in rep.children:
+                if sub.submod and sub.submod.tags:
+                    mod_tags.update(sub.submod.tags)
+        tags_html = self._render_tag_pills(mod_tags)
+        lines.append(f"<b>Tags:</b> {tags_html}")
+
         return "<br>".join(lines)
 
     def _render_replacer(self, node: TreeNode) -> str:
@@ -262,6 +271,10 @@ class DetailsPanel(QWidget):
         n_types = len(submod.condition_types_present)
         lines.append(f"Conditions: {n_conditions} entries · {n_types} types")
 
+        # Tag pills
+        tags_html = self._render_tag_pills(submod.tags)
+        lines.append(f"<b>Tags:</b> {tags_html}")
+
         # Override source label
         source_label = _override_source_label(submod.override_source)
         lines.append(f"<span style='color:gray'>{source_label}</span>")
@@ -273,6 +286,40 @@ class DetailsPanel(QWidget):
                 lines.append(f"<span style='color:#e66'>&#8226; {warning}</span>")
 
         return "<br>".join(lines)
+
+
+    @staticmethod
+    def _render_tag_pills(tags: set) -> str:
+        """Render tags as HTML pills for the details panel.
+
+        Args:
+            tags: A set of TagCategory values (or any tag objects) to render.
+
+        Returns:
+            An HTML string of inline pill spans, or a grey "None detected"
+            placeholder when the set is empty.
+        """
+        from oar_priority_manager.core.tag_engine import TagCategory
+        from oar_priority_manager.ui.tag_delegate import sorted_tags
+
+        if not tags:
+            return '<span style="color:#666">None detected</span>'
+
+        pills = []
+        for tag in sorted_tags(tags):
+            if isinstance(tag, TagCategory):
+                pills.append(
+                    f'<span style="'
+                    f"background:{tag.color_bg};"
+                    f"color:{tag.color_fg};"
+                    f"border:1px solid {tag.color_border};"
+                    f"border-radius:6px;"
+                    f"padding:1px 6px;"
+                    f"font-size:10px;"
+                    f"font-weight:bold;"
+                    f'">{tag.label}</span>'
+                )
+        return " ".join(pills)
 
 
 # ------------------------------------------------------------------

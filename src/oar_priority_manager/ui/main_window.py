@@ -93,7 +93,7 @@ class MainWindow(QMainWindow):
 
         # Left column: tree + details (vertical split)
         self._left_splitter = QSplitter(Qt.Orientation.Vertical)
-        self._tree_panel = TreePanel(self._submods)
+        self._tree_panel = TreePanel(self._submods, app_config=self._config)
         self._details_panel = DetailsPanel()
         self._left_splitter.addWidget(self._tree_panel)
         self._left_splitter.addWidget(self._details_panel)
@@ -400,6 +400,11 @@ class MainWindow(QMainWindow):
             present, negated = extract_condition_types(sm.conditions)
             sm.condition_types_present = present
             sm.condition_types_negated = negated
+
+        from oar_priority_manager.core.tag_engine import apply_overrides, compute_tags
+        for sm in self._submods:
+            sm.tags = compute_tags(sm)
+        apply_overrides(self._submods, self._config.tag_overrides)
 
         self._tree_panel.refresh(self._submods)
         self._stacks_panel.refresh(self._conflict_map)

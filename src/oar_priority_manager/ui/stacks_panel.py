@@ -7,6 +7,11 @@ Issues addressed:
   #34 — Rank badge colours (green for #1, grey for rest; red bg for losing rows)
   #35 — Expand/collapse animation sections
   #36 — Clickable competitor rows emitting competitor_focused signal
+  #46 — Shift by N button
+  #47 — Animation filter input
+  #48 — Collapse-winning toggle button
+  #60 — Right-click context menu "Go to in tree" on competitor rows
+  #61 — Target badge label showing which submod action buttons apply to
   #68 — Action buttons moved to toolbar row
   #69 — Relative/Absolute replaced with segmented toggle control
 """
@@ -18,7 +23,10 @@ from PySide6.QtWidgets import (
     QButtonGroup,
     QFrame,
     QHBoxLayout,
+    QInputDialog,
     QLabel,
+    QLineEdit,
+    QMenu,
     QPushButton,
     QScrollArea,
     QSizePolicy,
@@ -182,6 +190,8 @@ class StacksPanel(QWidget):
     competitor_focused = Signal(object)
     # Emitted when user triggers a priority action: (action_name, submod, value)
     action_triggered = Signal(str, object, object)
+    # Emitted when user right-clicks a competitor and chooses "Go to in tree"
+    navigate_to_submod = Signal(object)  # issue #60
 
     def __init__(
         self,
@@ -272,6 +282,22 @@ class StacksPanel(QWidget):
         # Spacer between toggle and action buttons
         toolbar.addSpacing(12)
 
+        # -- Target badge: shows which submod the action buttons apply to --
+        # (issue #61) Prevents confusion when clicking competitor rows updates
+        # the conditions panel but actions still target the tree selection.
+        self._target_label = QLabel()
+        self._target_label.setMaximumWidth(300)
+        self._target_label.setWordWrap(False)
+        self._target_label.setTextFormat(Qt.TextFormat.RichText)
+        self._target_label.setToolTip(
+            "The action buttons (Move to Top, Set Exact, etc.) apply to this"
+            " submod, even when a competitor row is highlighted."
+        )
+        self._update_target_label(None)
+        toolbar.addWidget(self._target_label)
+
+        toolbar.addSpacing(8)
+
         # -- Action buttons inlined into toolbar (issue #68) --
         self._move_to_top_btn = QPushButton("Move to Top")
         self._move_to_top_btn.clicked.connect(
@@ -301,9 +327,34 @@ class StacksPanel(QWidget):
         )
         toolbar.addWidget(self._move_mod_btn)
 
+        # -- Shift by N button (issue #46) --
+        self._shift_btn = QPushButton("Shift…")
+        self._shift_btn.setToolTip("Shift priority by a relative amount")
+        self._shift_btn.clicked.connect(self._on_shift)
+        toolbar.addWidget(self._shift_btn)
+
+        # -- Hide Winning toggle (issue #48) --
+        self._collapse_winning_btn = QPushButton("Hide Winning")
+        self._collapse_winning_btn.setCheckable(True)
+        self._collapse_winning_btn.setToolTip(
+            "Collapse sections where the selected submod is already #1"
+        )
+        self._collapse_winning_btn.toggled.connect(self._on_collapse_winning)
+        toolbar.addWidget(self._collapse_winning_btn)
+
         # No trailing stretch — toolbar fills naturally; action btns are right
         # of the spacer and the segmented toggle anchors to the left.
         layout.addWidget(toolbar_widget)
+
+        # ---- Animation filter input (issue #47) ----
+        # Placed below the toolbar row, above the header label, so it targets
+        # the scroll area content without cluttering the action-button row.
+        self._anim_filter = QLineEdit()
+        self._anim_filter.setPlaceholderText("Filter animations…")
+        self._anim_filter.setMaximumHeight(28)
+        self._anim_filter.setClearButtonEnabled(True)
+        self._anim_filter.textChanged.connect(self._on_anim_filter)
+        layout.addWidget(self._anim_filter)
 
         # ---- Toast notification (issue #37, spec §7.4) ----
         self._toast = QLabel()
@@ -338,9 +389,16 @@ class StacksPanel(QWidget):
         """Update stacks display for the selected submod.
 
         Disables action buttons when the submod has warnings (spec §9) or
-        when no submod is selected.
+        when no submod is selected.  Also refreshes the target badge so
+        the toolbar always shows which submod the action buttons apply to
+        (issue #61).
+
+        Args:
+            submod: The newly selected SubMod, or ``None`` to clear.
         """
         self._current_submod = submod
+        # Update target badge (issue #61)
+        self._update_target_label(submod)
         # Disable action buttons when submod has warnings (spec §9)
         has_warnings = submod.has_warnings if submod else True
         enabled = not has_warnings and submod is not None
@@ -348,6 +406,7 @@ class StacksPanel(QWidget):
         self._set_exact_btn.setEnabled(enabled)
         self._move_rep_btn.setEnabled(enabled)
         self._move_mod_btn.setEnabled(enabled)
+        self._shift_btn.setEnabled(enabled)  # issue #46
         self._refresh_display()
 
     def show_toast(self, message: str) -> None:
@@ -371,6 +430,38 @@ class StacksPanel(QWidget):
         """Refresh display using updated conflict map."""
         self._conflict_map = conflict_map
         self._refresh_display()
+
+    # ------------------------------------------------------------------
+    # Internal: target label (issue #61)
+    # ------------------------------------------------------------------
+
+    def _update_target_label(self, submod: SubMod | None) -> None:
+        """Update the toolbar target badge to reflect the action target.
+
+        When a submod is selected the label reads
+        ``"▸ Actions apply to: <b>SubModName</b>"`` in muted grey.
+        When nothing is selected it shows ``"No submod selected"`` in
+        dim grey so the badge is always present but visually quiet.
+
+        Args:
+            submod: The currently selected SubMod, or ``None`` when
+                nothing is selected.
+        """
+        if submod is None:
+            self._target_label.setText(
+                "<span style='color:#666;'>No submod selected</span>"
+            )
+        else:
+            # Elide long names to keep the toolbar compact.  Qt rich-text
+            # labels do not support built-in elision, so we truncate the
+            # raw name string before embedding it.
+            name = submod.name
+            if len(name) > 40:  # noqa: PLR2004
+                name = name[:37] + "…"
+            self._target_label.setText(
+                f"<span style='color:#aaa;'>&#9656; Actions apply to:"
+                f" <b>{name}</b></span>"
+            )
 
     # ------------------------------------------------------------------
     # Internal: mode toggle
@@ -463,6 +554,11 @@ class StacksPanel(QWidget):
         header_text = f"{anim} · {len(competitors)} competitors · {status}"
         section = _StackSection(header_text)
 
+        # Store metadata needed by filter (issue #47) and hide-winning
+        # (issue #48) without subclassing _StackSection.
+        section.anim_name = anim  # type: ignore[attr-defined]
+        section.is_winning = rank == 0  # type: ignore[attr-defined]
+
         # Restore collapsed state (issue #35)
         if self._collapsed.get(anim, False):
             # Simulate collapse without extra toggle machinery
@@ -506,16 +602,58 @@ class StacksPanel(QWidget):
                 relative_mode=self._relative_mode,
                 on_click=lambda checked=False, c=_comp: self.competitor_focused.emit(c),
             )
+
+            # Right-click "Go to in tree" context menu (issue #60).
+            # Context menu policy is set here (not inside _make_competitor_row)
+            # because the module-level helper has no access to self or signals.
+            row.setContextMenuPolicy(
+                Qt.ContextMenuPolicy.CustomContextMenu
+            )
+            row.customContextMenuRequested.connect(
+                lambda pos, c=_comp: self._show_competitor_context_menu(
+                    row, pos, c
+                )
+            )
+
             section.add_row(row)
 
         return section
+
+    # ------------------------------------------------------------------
+    # Competitor context menu (issue #60)
+    # ------------------------------------------------------------------
+
+    def _show_competitor_context_menu(
+        self,
+        row: QPushButton,
+        pos,
+        comp: SubMod,
+    ) -> None:
+        """Show a right-click context menu on a competitor row.
+
+        Presents a single "Go to in tree" action that emits
+        ``navigate_to_submod`` so the main window can select the
+        corresponding item in the tree panel.
+
+        Args:
+            row: The competitor row button the menu is anchored to.
+            pos: The local position of the right-click (from
+                ``customContextMenuRequested``).
+            comp: The competitor ``SubMod`` this row represents.
+        """
+        menu = QMenu(row)
+        action = menu.addAction("Go to in tree")
+        action.triggered.connect(
+            lambda: self.navigate_to_submod.emit(comp)
+        )
+        menu.exec(row.mapToGlobal(pos))
 
     # ------------------------------------------------------------------
     # Set Exact dialog
     # ------------------------------------------------------------------
 
     def _on_set_exact(self) -> None:
-        from PySide6.QtWidgets import QInputDialog
+        """Open a dialog to set the selected submod's priority to an exact value."""
         if self._current_submod is None:
             return
         value, ok = QInputDialog.getInt(
@@ -526,3 +664,84 @@ class StacksPanel(QWidget):
         )
         if ok:
             self.action_triggered.emit("set_exact", self._current_submod, value)
+
+    # ------------------------------------------------------------------
+    # Shift dialog (issue #46)
+    # ------------------------------------------------------------------
+
+    def _on_shift(self) -> None:
+        """Open a dialog to shift the selected submod's priority by a delta.
+
+        Prompts the user for a positive or negative integer offset, then
+        emits ``action_triggered("shift", submod, delta)`` on confirmation.
+        """
+        if self._current_submod is None:
+            return
+        value, ok = QInputDialog.getInt(
+            self, "Shift Priority",
+            "Shift priority by:",
+            value=0,
+            min=-2_147_483_648, max=2_147_483_647,
+        )
+        if ok:
+            self.action_triggered.emit("shift", self._current_submod, value)
+
+    # ------------------------------------------------------------------
+    # Animation filter (issue #47)
+    # ------------------------------------------------------------------
+
+    def _on_anim_filter(self, query: str) -> None:
+        """Show only stack sections whose animation name contains *query*.
+
+        Iterates every ``_StackSection`` widget currently in the scroll
+        area's content layout and toggles visibility based on a
+        case-insensitive substring match.  An empty query restores all
+        sections.
+
+        Args:
+            query: The filter string typed by the user.
+        """
+        q = query.lower()
+        for i in range(self._content_layout.count()):
+            item = self._content_layout.itemAt(i)
+            if item is None:
+                continue
+            widget = item.widget()
+            if not isinstance(widget, _StackSection):
+                continue
+            anim_name: str = getattr(widget, "anim_name", "")
+            visible = not q or q in anim_name.lower()
+            widget.setVisible(visible)
+
+    # ------------------------------------------------------------------
+    # Collapse-winning toggle (issue #48)
+    # ------------------------------------------------------------------
+
+    def _on_collapse_winning(self, checked: bool) -> None:
+        """Collapse or expand sections based on whether the submod is winning.
+
+        When *checked* is ``True``, every section where the selected
+        submod is rank #1 (``section.is_winning is True``) is collapsed
+        so the user can focus on conflicting animations.  When *checked*
+        is ``False``, all sections are expanded.
+
+        Args:
+            checked: ``True`` to hide winning sections, ``False`` to
+                restore all.
+        """
+        for i in range(self._content_layout.count()):
+            item = self._content_layout.itemAt(i)
+            if item is None:
+                continue
+            widget = item.widget()
+            if not isinstance(widget, _StackSection):
+                continue
+            is_winning: bool = getattr(widget, "is_winning", False)
+            if checked and is_winning:
+                # Collapse: force content hidden without toggling state
+                # so the header arrow stays consistent.
+                if widget._expanded:
+                    widget._toggle()
+            elif not checked and not widget._expanded:
+                # Expand all sections back.
+                widget._toggle()

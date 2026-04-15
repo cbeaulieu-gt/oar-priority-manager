@@ -45,6 +45,9 @@ class SubMod:
     raw_dict: dict
     animations: list[str] = field(default_factory=list)
     conditions: dict = field(default_factory=dict)
+    # conditionPresets from the replacer-level config.json.
+    # Stored per-submod so it's available without needing the replacer path.
+    replacer_presets: dict = field(default_factory=dict)
     # Populated by filter_engine.py (Task 9). Empty until that module exists.
     condition_types_present: set[str] = field(default_factory=set)
     condition_types_negated: set[str] = field(default_factory=set)

@@ -9,7 +9,15 @@ from pathlib import Path
 
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QKeySequence, QShortcut
-from PySide6.QtWidgets import QHBoxLayout, QMainWindow, QPushButton, QSplitter, QVBoxLayout, QWidget
+from PySide6.QtWidgets import (
+    QHBoxLayout,
+    QMainWindow,
+    QMessageBox,
+    QPushButton,
+    QSplitter,
+    QVBoxLayout,
+    QWidget,
+)
 
 from oar_priority_manager.app.config import AppConfig
 from oar_priority_manager.core.anim_scanner import build_conflict_map, scan_animations
@@ -46,6 +54,9 @@ class MainWindow(QMainWindow):
         self._stacks = stacks
         self._config = app_config
         self._instance_root = instance_root
+        # Tracks whether the search filter should hide non-matches (True)
+        # or dim them (False, the default).  Updated via SearchBar.filter_mode_changed.
+        self._hide_mode: bool = False
 
         self._setup_ui()
         self._connect_signals()
@@ -115,8 +126,12 @@ class MainWindow(QMainWindow):
         self._tree_panel.selection_changed.connect(self._on_tree_selection)
         self._search_bar.search_changed.connect(self._on_search)
         self._search_bar.refresh_requested.connect(self._on_refresh)
+        self._search_bar.filter_mode_changed.connect(self._on_filter_mode_changed)
         self._stacks_panel.action_triggered.connect(self._on_action)
         self._stacks_panel.competitor_focused.connect(self._on_competitor_focused)
+        self._stacks_panel.navigate_to_submod.connect(  # issue #60
+            self._on_navigate_to_submod
+        )
 
     def _on_tree_selection(self, node) -> None:
         self._details_panel.update_selection(node)
@@ -130,6 +145,31 @@ class MainWindow(QMainWindow):
         if submod:
             self._conditions_panel.update_focus(submod)
 
+    def _on_navigate_to_submod(self, submod: SubMod) -> None:
+        """Navigate to a competitor submod in the tree panel (issue #60).
+
+        Called when the user selects "Go to in tree" from the right-click
+        context menu on a competitor row.  Delegates to
+        ``TreePanel.select_submod``, which scrolls the tree to the item
+        and fires the ``selection_changed`` signal so the rest of the UI
+        updates consistently.
+
+        Args:
+            submod: The competitor ``SubMod`` to navigate to.
+        """
+        self._tree_panel.select_submod(submod)
+
+    def _on_filter_mode_changed(self, hide_mode: bool) -> None:
+        """Update the stored hide/dim mode (issued by SearchBar.filter_mode_changed).
+
+        The SearchBar also re-emits search_changed after this signal, so the
+        active filter is automatically re-applied with the new mode.
+
+        Args:
+            hide_mode: True = hide non-matching items, False = dim them.
+        """
+        self._hide_mode = hide_mode
+
     def _on_search(self, query: str) -> None:
         """Filter tree based on search query (spec §7.2)."""
         if not query.strip():
@@ -140,7 +180,102 @@ class MainWindow(QMainWindow):
         index = SearchIndex(self._tree_panel.tree_root, self._conflict_map)
         results = index.search(query)
         matching = {id(r.node) for r in results}
-        self._tree_panel.filter_tree(matching)
+        self._tree_panel.filter_tree(matching, hide_mode=self._hide_mode)
+
+    def _confirm_action(self, action: str, submod: SubMod, value: object) -> bool:
+        """Show a preview dialog for the proposed priority change and return True if confirmed.
+
+        Computes what the new priorities would be WITHOUT applying them, formats a
+        human-readable summary with current → new values, and asks the user to
+        confirm via QMessageBox.question.
+
+        Args:
+            action: One of "move_to_top", "move_to_top_replacer", "move_to_top_mod",
+                    "set_exact", or "shift".
+            submod: The target submod the action was triggered for.
+            value:  Action-specific parameter (int priority for "set_exact",
+                    int delta for "shift", None for move_to_top variants).
+
+        Returns:
+            True if the user clicked OK/Yes; False if they cancelled.
+        """
+        from oar_priority_manager.core.priority_resolver import (
+            PriorityOverflowError,
+            move_to_top,
+            set_exact,
+        )
+
+        try:
+            if action == "move_to_top":
+                preview = move_to_top(submod, self._conflict_map, scope="submod")
+                if not preview:
+                    # Already winning — nothing to confirm; let _on_action handle gracefully.
+                    return True
+                new_p = preview[submod]
+                msg = (
+                    f"Move {submod.name} to top\n\n"
+                    f"Current priority: {submod.priority}\n"
+                    f"New priority:     {new_p}"
+                )
+
+            elif action == "move_to_top_replacer":
+                preview = move_to_top(submod, self._conflict_map, scope="replacer")
+                if not preview:
+                    return True
+                lines = [f"Move replacer '{submod.replacer}' to top\n"]
+                lines.append(f"{'Submod':<30}  {'Current':>10}  {'New':>10}")
+                lines.append("-" * 54)
+                for sm, new_p in sorted(preview.items(), key=lambda kv: kv[0].name):
+                    lines.append(f"{sm.name:<30}  {sm.priority:>10}  {new_p:>10}")
+                lines.append(f"\n{len(preview)} submod(s) will be updated.")
+                msg = "\n".join(lines)
+
+            elif action == "move_to_top_mod":
+                preview = move_to_top(submod, self._conflict_map, scope="mod")
+                if not preview:
+                    return True
+                lines = [f"Move mod '{submod.mo2_mod}' to top\n"]
+                lines.append(f"{'Submod':<30}  {'Current':>10}  {'New':>10}")
+                lines.append("-" * 54)
+                for sm, new_p in sorted(preview.items(), key=lambda kv: kv[0].name):
+                    lines.append(f"{sm.name:<30}  {sm.priority:>10}  {new_p:>10}")
+                lines.append(f"\n{len(preview)} submod(s) will be updated.")
+                msg = "\n".join(lines)
+
+            elif action == "set_exact" and isinstance(value, int):
+                # set_exact is a pure function — call it only to validate range.
+                set_exact(submod, value)
+                msg = (
+                    f"Set {submod.name} priority\n\n"
+                    f"Current priority: {submod.priority}\n"
+                    f"New priority:     {value}"
+                )
+
+            elif action == "shift" and isinstance(value, int):
+                new_p = submod.priority + value
+                direction = f"+{value}" if value >= 0 else str(value)
+                msg = (
+                    f"Shift {submod.name} priority by {direction}\n\n"
+                    f"Current priority: {submod.priority}\n"
+                    f"New priority:     {new_p}"
+                )
+
+            else:
+                # Unknown action — pass through without a dialog.
+                return True
+
+        except PriorityOverflowError as e:
+            # Surface overflow immediately so _on_action doesn't need to re-catch it.
+            QMessageBox.warning(self, "Priority Overflow", str(e))
+            return False
+
+        reply = QMessageBox.question(
+            self,
+            "Confirm Priority Change",
+            msg,
+            QMessageBox.StandardButton.Ok | QMessageBox.StandardButton.Cancel,
+        )
+        return reply == QMessageBox.StandardButton.Ok
 
     def _on_action(self, action: str, submod: SubMod, value: object) -> None:
         """Handle priority mutation actions from the stacks panel (spec §6.3 step 5)."""
@@ -150,6 +285,9 @@ class MainWindow(QMainWindow):
             move_to_top,
             set_exact,
         )
+
+        if not self._confirm_action(action, submod, value):
+            return
 
         try:
             if action == "move_to_top":
@@ -181,7 +319,6 @@ class MainWindow(QMainWindow):
             )
 
         except PriorityOverflowError as e:
-            from PySide6.QtWidgets import QMessageBox
             QMessageBox.warning(self, "Priority Overflow", str(e))
 
     def _on_clear_overrides(self) -> None:

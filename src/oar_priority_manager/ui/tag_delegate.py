@@ -19,7 +19,7 @@ TAG_OVERRIDE_ROLE: int = Qt.ItemDataRole.UserRole + 101
 # Pill layout constants
 _PILL_H_PAD: int = 6
 _PILL_V_PAD: int = 2
-_PILL_GAP: int = 3
+_PILL_GAP: int = 6
 _PILL_RADIUS: int = 6
 _PILL_FONT_SIZE: int = 9
 _PILL_LEFT_MARGIN: int = 8
@@ -32,7 +32,7 @@ def sorted_tags(tags: set[TagCategory]) -> list[TagCategory]:
 
 
 class TagDelegate(QStyledItemDelegate):
-    """Delegate that paints tag pills to the right of the item text."""
+    """Delegate that paints tag pills after the item text."""
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
@@ -75,15 +75,12 @@ class TagDelegate(QStyledItemDelegate):
         pill_h = self._pill_fm.height() + 2 * _PILL_V_PAD
         y = rect.top() + (rect.height() - pill_h) // 2
 
-        # Calculate total pills width to right-align
-        total_width = 0
-        for tag in tags:
-            total_width += self._pill_width(tag.label) + _PILL_GAP
-        if is_override:
-            total_width += self._pill_fm.horizontalAdvance("\u270E ") + _PILL_GAP
-        total_width -= _PILL_GAP
-
-        x = rect.right() - total_width - _PILL_LEFT_MARGIN
+        # Left-align pills after the display text
+        display_text = index.data(Qt.ItemDataRole.DisplayRole) or ""
+        text_fm = option.fontMetrics
+        text_width = text_fm.horizontalAdvance(display_text)
+        # Account for item indentation and icon space
+        x = option.rect.left() + text_width + _PILL_LEFT_MARGIN
 
         # Draw override indicator (pencil)
         if is_override:

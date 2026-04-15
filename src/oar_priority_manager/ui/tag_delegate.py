@@ -18,7 +18,7 @@ TAG_OVERRIDE_ROLE: int = Qt.ItemDataRole.UserRole + 101
 
 # Pill layout constants
 _PILL_H_PAD: int = 6
-_PILL_V_PAD: int = 2
+_PILL_V_PAD: int = 1
 _PILL_GAP: int = 6
 _PILL_RADIUS: int = 6
 _PILL_FONT_SIZE: int = 9
@@ -124,7 +124,7 @@ class TagDelegate(QStyledItemDelegate):
         option: QStyleOptionViewItem,
         index,
     ) -> QSize:
-        """Expand width to accommodate pills."""
+        """Expand width to accommodate pills and ensure vertical breathing room."""
         size = super().sizeHint(option, index)
         tags = self._get_tags(index)
         if tags:
@@ -132,4 +132,9 @@ class TagDelegate(QStyledItemDelegate):
             for tag in tags:
                 extra += self._pill_width(tag.label) + _PILL_GAP
             size.setWidth(size.width() + extra)
+            # Ensure enough vertical space so pills don't touch between rows
+            pill_h = self._pill_fm.height() + 2 * _PILL_V_PAD
+            min_height = pill_h + 6  # 3px breathing room above and below
+            if size.height() < min_height:
+                size.setHeight(min_height)
         return size

@@ -6,10 +6,84 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 from dataclasses import asdict, dataclass, field
+from datetime import UTC, datetime
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
+
+# ---------------------------------------------------------------------------
+# Last-instance persistence (spec §8.3.1 — manual picker fallback)
+# ---------------------------------------------------------------------------
+
+#: Subdirectory under %APPDATA% where the last-instance file is stored.
+_APPDATA_SUBDIR = "oar-priority-manager"
+
+#: File that stores the manually-chosen mods path across launches.
+_LAST_INSTANCE_FILENAME = "last-instance.json"
+
+
+def _appdata_dir() -> Path:
+    """Return the %APPDATA%/oar-priority-manager directory.
+
+    Returns:
+        Path to the application data directory.
+    """
+    appdata = os.environ.get("APPDATA") or str(Path.home() / "AppData" / "Roaming")
+    return Path(appdata) / _APPDATA_SUBDIR
+
+
+def load_last_instance() -> Path | None:
+    """Load the manually-chosen mods path from the last-instance cache.
+
+    Reads ``%APPDATA%/oar-priority-manager/last-instance.json``.  Returns
+    ``None`` on any failure (missing file, bad JSON, path no longer valid).
+
+    Returns:
+        The cached mods directory as a resolved :class:`Path`, or ``None`` if
+        the cache is absent, unreadable, or points to a directory that no
+        longer exists.
+    """
+    cache_path = _appdata_dir() / _LAST_INSTANCE_FILENAME
+    if not cache_path.is_file():
+        return None
+    try:
+        data = json.loads(cache_path.read_text(encoding="utf-8"))
+        mods_path = Path(data["mods_path"])
+        if mods_path.is_dir():
+            return mods_path
+        logger.warning(
+            "Cached mods path no longer exists: %s", mods_path
+        )
+        return None
+    except (json.JSONDecodeError, KeyError, OSError) as exc:
+        logger.warning("Could not read last-instance cache: %s", exc)
+        return None
+
+
+def save_last_instance(mods_path: Path) -> None:
+    """Persist the manually-chosen mods path for use on subsequent launches.
+
+    Writes ``%APPDATA%/oar-priority-manager/last-instance.json`` with the
+    given path and the current UTC timestamp.
+
+    Args:
+        mods_path: Absolute path to the MO2 ``mods/`` directory chosen by
+            the user via the directory picker dialog.
+    """
+    cache_dir = _appdata_dir()
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    cache_path = cache_dir / _LAST_INSTANCE_FILENAME
+    payload = {
+        "mods_path": str(mods_path),
+        "timestamp": datetime.now(tz=UTC).isoformat(),
+    }
+    cache_path.write_text(
+        json.dumps(payload, indent=2) + "\n",
+        encoding="utf-8",
+    )
+    logger.debug("Saved last-instance cache: %s", cache_path)
 
 
 class DetectionError(Exception):
@@ -39,7 +113,10 @@ def detect_instance_root(
       1. ``mods_path`` CLI arg — parent directory is the instance root.
       2. ``cwd`` contains both ``ModOrganizer.ini`` and ``mods/``.
       3. Walk up from ``cwd`` looking for ``ModOrganizer.ini`` + ``mods/``.
-      4. Raise :class:`DetectionError` — no instance found.
+      4. Cached last-instance path from ``%APPDATA%/oar-priority-manager/``
+         ``last-instance.json`` — parent directory is the instance root.
+      5. Raise :class:`DetectionError` — no instance found (caller should
+         show the directory-picker dialog as a last resort).
 
     Args:
         mods_path: Explicit path to the MO2 ``mods/`` directory, typically
@@ -73,6 +150,12 @@ def detect_instance_root(
             ):
                 return current
             current = current.parent
+
+    # Step 4 — check the last-instance cache written by the directory picker.
+    cached = load_last_instance()
+    if cached is not None:
+        logger.info("Using cached mods path from last-instance: %s", cached)
+        return cached.parent
 
     raise DetectionError(
         "Could not detect MO2 instance. Please configure the executable with "

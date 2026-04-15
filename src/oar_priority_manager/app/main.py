@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import argparse
 import logging
+import os
 import sys
 from pathlib import Path
 
@@ -74,14 +75,26 @@ def main(argv: list[str] | None = None) -> int:
         format="%(name)s %(levelname)s: %(message)s",
     )
 
+    # Force the native Windows platform plugin.  pytest-qt sets
+    # QT_QPA_PLATFORM=offscreen for headless tests — if that leaks into
+    # a real launch (same terminal, IDE env, etc.) the app renders to an
+    # invisible buffer and no window ever appears.
+    os.environ.pop("QT_QPA_PLATFORM", None)
+    app = QApplication(sys.argv[:1] + ["-platform", "windows"])
+    app.setApplicationName("OAR Priority Manager")
+
     try:
         instance_root = detect_instance_root(
             mods_path=args.mods_path,
             cwd=Path.cwd(),
         )
-    except DetectionError as e:
-        print(f"ERROR: {e}", file=sys.stderr)
-        return 1
+    except DetectionError:
+        # All auto-detection steps failed — fall back to the manual picker.
+        logger.info("Auto-detection failed; showing directory picker dialog.")
+        from oar_priority_manager.ui.instance_picker import pick_mods_directory
+
+        mods_path = pick_mods_directory(app)
+        instance_root = mods_path.parent
 
     logger.info("MO2 instance root: %s", instance_root)
 
@@ -91,15 +104,6 @@ def main(argv: list[str] | None = None) -> int:
     submods, conflict_map, stacks = run_scan(instance_root)
     apply_overrides(submods, app_config.tag_overrides)
     logger.info("Loaded %d submods, %d animation stacks", len(submods), len(stacks))
-
-    # Force the native Windows platform plugin.  pytest-qt sets
-    # QT_QPA_PLATFORM=offscreen for headless tests — if that leaks into
-    # a real launch (same terminal, IDE env, etc.) the app renders to an
-    # invisible buffer and no window ever appears.
-    import os
-    os.environ.pop("QT_QPA_PLATFORM", None)
-    app = QApplication(sys.argv[:1] + ["-platform", "windows"])
-    app.setApplicationName("OAR Priority Manager")
 
     # Diagnostic: which Qt platform plugin is loaded?
     logger.info("Qt platform: %s", app.platformName())

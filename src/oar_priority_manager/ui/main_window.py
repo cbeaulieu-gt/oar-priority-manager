@@ -21,13 +21,17 @@ from PySide6.QtWidgets import (
 
 from oar_priority_manager.app.config import AppConfig
 from oar_priority_manager.core.anim_scanner import build_conflict_map, scan_animations
-from oar_priority_manager.core.filter_engine import extract_condition_types
+from oar_priority_manager.core.filter_engine import (
+    extract_condition_types,
+    match_filter,
+    parse_filter_query,
+)
 from oar_priority_manager.core.models import PriorityStack, SubMod
 from oar_priority_manager.core.priority_resolver import build_stacks
 from oar_priority_manager.core.scanner import scan_mods
 from oar_priority_manager.ui.conditions_panel import ConditionsPanel
 from oar_priority_manager.ui.details_panel import DetailsPanel
-from oar_priority_manager.ui.search_bar import SearchBar
+from oar_priority_manager.ui.search_bar import SearchBar, SearchMode, detect_search_mode
 from oar_priority_manager.ui.stacks_panel import StacksPanel
 from oar_priority_manager.ui.tree_model import SearchIndex
 from oar_priority_manager.ui.tree_panel import TreePanel
@@ -171,15 +175,84 @@ class MainWindow(QMainWindow):
         self._hide_mode = hide_mode
 
     def _on_search(self, query: str) -> None:
-        """Filter tree based on search query (spec §7.2)."""
+        """Filter tree based on search query (spec §7.2).
+
+        When the query activates condition filter mode (contains AND/OR/NOT
+        keywords or a ``condition:`` prefix), routes through
+        :func:`~oar_priority_manager.core.filter_engine.parse_filter_query`
+        and :func:`~oar_priority_manager.core.filter_engine.match_filter`
+        to filter by structural condition presence.  Otherwise falls back
+        to the normal ``SearchIndex`` substring search.
+
+        Args:
+            query: The raw text currently in the search bar.
+        """
         if not query.strip():
             self._tree_panel.filter_tree(None)
             return
 
-        # Build search index on each search (fast enough for typical mod counts)
+        mode = detect_search_mode(query)
+
+        if mode == SearchMode.CONDITION:
+            self._apply_condition_filter(query)
+        else:
+            self._apply_text_filter(query)
+
+    def _apply_text_filter(self, query: str) -> None:
+        """Run a normal substring search and filter the tree.
+
+        Args:
+            query: Raw search text (already confirmed non-empty).
+        """
+        # Build search index on each search (fast enough for typical
+        # mod counts).
         index = SearchIndex(self._tree_panel.tree_root, self._conflict_map)
         results = index.search(query)
         matching = {id(r.node) for r in results}
+        self._tree_panel.filter_tree(matching, hide_mode=self._hide_mode)
+
+    def _apply_condition_filter(self, query: str) -> None:
+        """Filter tree nodes using the condition-presence filter engine.
+
+        Strips the optional ``condition:`` prefix before parsing so both
+        ``condition:IsFemale`` and ``IsFemale`` are handled identically once
+        condition mode is active.
+
+        Only SUBMOD-level ``TreeNode`` objects whose associated ``SubMod``
+        passes :func:`match_filter` are included in the matching set.
+        Ancestor nodes are revealed automatically by
+        :meth:`~oar_priority_manager.ui.tree_panel.TreePanel.filter_tree`.
+
+        Args:
+            query: Raw search text containing condition filter keywords.
+        """
+        from oar_priority_manager.ui.tree_model import NodeType
+
+        # Strip the optional prefix so "condition:IsFemale" parses as
+        # "IsFemale".
+        stripped = query.strip()
+        if stripped.lower().startswith("condition:"):
+            stripped = stripped[len("condition:"):]
+
+        filter_query = parse_filter_query(stripped)
+
+        matching: set[int] = set()
+        root = self._tree_panel.tree_root
+        for mod_node in root.children:
+            for rep_node in mod_node.children:
+                for sub_node in rep_node.children:
+                    if sub_node.node_type != NodeType.SUBMOD:
+                        continue
+                    sm = sub_node.submod
+                    if sm is None:
+                        continue
+                    if match_filter(
+                        sm.condition_types_present,
+                        sm.condition_types_negated,
+                        filter_query,
+                    ):
+                        matching.add(id(sub_node))
+
         self._tree_panel.filter_tree(matching, hide_mode=self._hide_mode)
 
     def _confirm_action(self, action: str, submod: SubMod, value: object) -> bool:

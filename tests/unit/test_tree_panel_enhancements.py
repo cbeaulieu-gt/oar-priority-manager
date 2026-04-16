@@ -167,7 +167,6 @@ class TestFilterTreeHideMode:
         """Passing None should unhide all items regardless of prior mode."""
         panel = panel_with_two_mods
         # First apply a hide filter, then clear it
-        all_node_ids = set(id(n) for n in panel._item_map.values())
         panel.filter_tree(set(), hide_mode=True)  # hide everything
 
         panel.filter_tree(None)  # clear

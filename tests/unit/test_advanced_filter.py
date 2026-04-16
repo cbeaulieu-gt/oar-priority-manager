@@ -1,14 +1,50 @@
-"""Tests for AdvancedFilterQuery dataclass and match_advanced_filter() function.
+"""Tests for AdvancedFilterQuery, match_advanced_filter, and
+collect_known_condition_types in filter_engine.py.
 
 Covers the pure-logic foundation for the advanced filter builder (Issue #49).
-See plan §5 Task 1 and spec §7.7 for semantics.
+See plan §5 Tasks 1-2 and spec §7.7 for semantics.
 """
 from __future__ import annotations
 
+from pathlib import Path
+
 from oar_priority_manager.core.filter_engine import (
     AdvancedFilterQuery,
+    collect_known_condition_types,
     match_advanced_filter,
 )
+from oar_priority_manager.core.models import OverrideSource, SubMod
+
+
+def _make_submod(
+    condition_types_present: set[str] | None = None,
+    name: str = "test_sub",
+) -> SubMod:
+    """Minimal SubMod factory for collect_known_condition_types tests.
+
+    Args:
+        condition_types_present: Condition type names to place on the submod.
+            Defaults to an empty set.
+        name: Submod name (used to generate a unique config_path).
+
+    Returns:
+        A SubMod with only the fields required by collect_known_condition_types
+        populated; all other fields use safe sentinel values.
+    """
+    return SubMod(
+        mo2_mod="TestMod",
+        replacer="TestReplacer",
+        name=name,
+        description="",
+        priority=100,
+        source_priority=100,
+        disabled=False,
+        config_path=Path(f"/fake/TestMod/TestReplacer/{name}/config.json"),
+        override_source=OverrideSource.SOURCE,
+        override_is_ours=False,
+        raw_dict={},
+        condition_types_present=condition_types_present or set(),
+    )
 
 
 class TestAdvancedFilterQuery:
@@ -165,3 +201,60 @@ class TestMatchAdvancedFilter:
         query = AdvancedFilterQuery(required={"A"})
         # Non-empty negated set — should have zero effect on MVP matching.
         assert match_advanced_filter({"A"}, {"A"}, query) is True
+
+
+class TestCollectKnownConditionTypes:
+    """collect_known_condition_types helper: fallback + union of submod conditions."""
+
+    def test_empty_submod_list_returns_nonempty_fallback(self):
+        """With no submods the result equals the static fallback and is non-empty.
+
+        The fallback is built from tag_engine._DISTINCTIVE_CONDITIONS and
+        tag_engine._NON_DISTINCTIVE_CONDITIONS, which together guarantee at
+        least one condition type name in the result.
+        """
+        result = collect_known_condition_types([])
+        assert len(result) >= 1
+
+    def test_overlapping_condition_types_are_deduplicated(self):
+        """Condition types shared across multiple submods appear exactly once."""
+        sm1 = _make_submod({"IsFemale"}, name="sub1")
+        sm2 = _make_submod({"IsFemale"}, name="sub2")
+        result = collect_known_condition_types([sm1, sm2])
+        assert result.count("IsFemale") == 1
+
+    def test_result_type_is_list(self):
+        """collect_known_condition_types returns a list, not a set or tuple."""
+        result = collect_known_condition_types([])
+        assert isinstance(result, list)
+
+    def test_result_is_sorted_ascending(self):
+        """The returned list is sorted in ascending alphabetical order."""
+        sm = _make_submod({"ZZZ_Last", "AAA_First"}, name="sub1")
+        result = collect_known_condition_types([sm])
+        assert result == sorted(result)
+
+    def test_fallback_contains_known_sentinel_values(self):
+        """Known OAR condition types from the two fallback dicts are present.
+
+        Uses sentinel-style assertions (in, not ==) so the test remains valid
+        if the OAR project adds new condition types to the fallback dicts.
+        """
+        result = collect_known_condition_types([])
+        assert "IsFemale" in result
+        assert "IsInCombat" in result
+        assert "HasMagicEffect" in result
+
+    def test_submod_conditions_union_with_fallback(self):
+        """Condition types from multiple submods are each present alongside fallback.
+
+        Two submods contribute distinct types; both must appear in the output,
+        and the fallback sentinel values must also be there.
+        """
+        sm1 = _make_submod({"IsRace"}, name="sub1")
+        sm2 = _make_submod({"HasKeyword"}, name="sub2")
+        result = collect_known_condition_types([sm1, sm2])
+        assert "IsRace" in result
+        assert "HasKeyword" in result
+        # Fallback values still present alongside the submod-contributed types.
+        assert "IsFemale" in result

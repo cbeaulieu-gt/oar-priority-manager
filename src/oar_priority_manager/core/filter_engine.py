@@ -27,10 +27,19 @@ AdvancedFilterQuery
 
 match_advanced_filter(present, negated, query)
     Test whether a SubMod's condition sets satisfy an AdvancedFilterQuery.
+
+collect_known_condition_types(submods)
+    Return sorted deduplicated union of condition types from submods plus a
+    static fallback list.
 """
 from __future__ import annotations
 
+from collections.abc import Iterable
 from dataclasses import dataclass, field
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from oar_priority_manager.core.models import SubMod
 
 # OAR group-node types — these are structural and must NOT appear in the
 # output sets produced by extract_condition_types.
@@ -273,3 +282,46 @@ def match_advanced_filter(
         return False
     # ANY OF: only restricts when the bucket is non-empty.
     return not (query.any_of and not query.any_of & present)
+
+
+# ---------------------------------------------------------------------------
+# Known condition-type enumeration (for UI dropdowns and filter builders)
+# ---------------------------------------------------------------------------
+
+
+def collect_known_condition_types(submods: Iterable[SubMod]) -> list[str]:
+    """Return sorted deduplicated union of condition types from submods.
+
+    Combines condition types found on the provided submods with a static
+    fallback list derived from ``tag_engine._DISTINCTIVE_CONDITIONS`` and
+    ``tag_engine._NON_DISTINCTIVE_CONDITIONS``.  The fallback guarantees a
+    non-empty result even when no submods have been scanned yet.
+
+    ``tag_engine`` is imported lazily inside this function to avoid a
+    circular-import between ``filter_engine`` and ``tag_engine`` (both are
+    in the same package and may import each other transitively through the
+    models layer).
+
+    Args:
+        submods: Any iterable of :class:`~oar_priority_manager.core.models\
+.SubMod` objects.  May be empty.
+
+    Returns:
+        A sorted ``list[str]`` of deduplicated condition type names, combining
+        every ``submod.condition_types_present`` with the static fallback.
+        Ascending alphabetical order.
+    """
+    # Lazy import to avoid circular dependency between filter_engine and
+    # tag_engine (both live in the same package and share the models layer).
+    from oar_priority_manager.core import tag_engine  # noqa: PLC0415
+
+    fallback: set[str] = (
+        set(tag_engine._DISTINCTIVE_CONDITIONS.keys())
+        | set(tag_engine._NON_DISTINCTIVE_CONDITIONS.keys())
+    )
+
+    known: set[str] = set(fallback)
+    for sm in submods:
+        known |= sm.condition_types_present
+
+    return sorted(known)

@@ -83,7 +83,7 @@ def main(argv: list[str] | None = None) -> int:
     os.environ.pop("QT_QPA_PLATFORM", None)
     app = QApplication(sys.argv[:1] + ["-platform", "windows"])
     app.setApplicationName("OAR Priority Manager")
-    apply_stylesheet(app, theme="dark_teal.xml")
+    apply_stylesheet(app, theme="dark_blue.xml")
 
     try:
         instance_root = detect_instance_root(

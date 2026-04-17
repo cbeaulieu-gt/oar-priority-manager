@@ -12,6 +12,7 @@ import sys
 from pathlib import Path
 
 from PySide6.QtWidgets import QApplication
+from qt_material import apply_stylesheet
 
 from oar_priority_manager.app.config import (
     DetectionError,
@@ -82,6 +83,7 @@ def main(argv: list[str] | None = None) -> int:
     os.environ.pop("QT_QPA_PLATFORM", None)
     app = QApplication(sys.argv[:1] + ["-platform", "windows"])
     app.setApplicationName("OAR Priority Manager")
+    apply_stylesheet(app, theme="dark_teal.xml")
 
     try:
         instance_root = detect_instance_root(

@@ -242,8 +242,8 @@
 17. **Collapse-winning button** in stacks toolbar
 18. **Advanced filter builder** — stub only, no pill buckets
 19. **Condition filter mode** detection in search bar
-20. **Scan issues (N) log pane** with file paths and error details
+20. ~~**Scan issues (N) log pane** with file paths and error details~~ — ✅ delivered by #51
 21. **EXTERNAL OVERRIDE badge** in details panel
 22. **Manual directory picker** dialog on detection failure
 23. **Keyboard focus on search bar at launch**
-24. **Warning items show parse errors in details panel** instead of generic text
+24. ~~**Warning items show parse errors in details panel** instead of generic text~~ — ✅ delivered by #51

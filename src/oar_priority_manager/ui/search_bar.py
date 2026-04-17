@@ -98,6 +98,9 @@ class SearchBar(QWidget):
             the current text string.
         refresh_requested: Emitted when the Refresh button is clicked.
         advanced_requested: Emitted when the Advanced button is clicked.
+        scan_issues_requested: Emitted when the Scan issues button is
+            clicked. The button is only enabled when the issue count is
+            greater than zero.
         filter_mode_changed: Emitted when the Hide/Dim toggle changes.
             Carries ``True`` when hide mode is active, ``False`` for dim.
         condition_mode_changed: Emitted when the search mode transitions
@@ -108,6 +111,7 @@ class SearchBar(QWidget):
     search_changed = Signal(str)
     refresh_requested = Signal()
     advanced_requested = Signal()
+    scan_issues_requested = Signal()
     # Emitted when the hide/dim mode changes. True = hide mode, False = dim.
     filter_mode_changed = Signal(bool)
     # Emitted when the mode switches between TEXT and CONDITION.
@@ -147,6 +151,18 @@ class SearchBar(QWidget):
         self._advanced_btn = QPushButton("Advanced...")
         self._advanced_btn.clicked.connect(self.advanced_requested.emit)
         layout.addWidget(self._advanced_btn)
+
+        self._scan_issues_btn = QPushButton("Scan issues (0)")
+        self._scan_issues_btn.setObjectName("scan-issues-btn")
+        self._scan_issues_btn.setToolTip(
+            "Open the log pane listing parse and validation warnings"
+            " found during scan."
+        )
+        self._scan_issues_btn.setEnabled(False)
+        self._scan_issues_btn.clicked.connect(
+            self.scan_issues_requested.emit
+        )
+        layout.addWidget(self._scan_issues_btn)
 
         self._refresh_btn = QPushButton("Refresh")
         self._refresh_btn.clicked.connect(self.refresh_requested.emit)
@@ -212,3 +228,17 @@ class SearchBar(QWidget):
         """Focus the search input and select all text."""
         self._input.setFocus()
         self._input.selectAll()
+
+    def set_scan_issues_count(self, count: int) -> None:
+        """Update the Scan issues button label and enabled state.
+
+        Sets the button text to ``"Scan issues (N)"`` and enables the
+        button when *count* is greater than zero.  Disables the button
+        when *count* is zero.
+
+        Args:
+            count: Number of submods with warnings. The button is
+                disabled when ``count == 0``.
+        """
+        self._scan_issues_btn.setText(f"Scan issues ({count})")
+        self._scan_issues_btn.setEnabled(count > 0)

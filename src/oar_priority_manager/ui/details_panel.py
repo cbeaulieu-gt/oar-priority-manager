@@ -8,7 +8,7 @@ from __future__ import annotations
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QLabel, QVBoxLayout, QWidget
 
-from oar_priority_manager.core.models import OverrideSource
+from oar_priority_manager.core.models import OverrideSource, SubMod
 from oar_priority_manager.ui.tree_model import NodeType, TreeNode
 
 
@@ -46,6 +46,8 @@ class DetailsPanel(QWidget):
         elif node.node_type == NodeType.SUBMOD:
             if node.submod is None:
                 self._label.setText("Select an item in the tree to see details.")
+            elif node.submod.has_warnings:
+                self._label.setText(self._render_submod_warnings(node.submod))
             else:
                 self._label.setText(self._render_submod(node))
 
@@ -279,14 +281,34 @@ class DetailsPanel(QWidget):
         source_label = _override_source_label(submod.override_source)
         lines.append(f"<span style='color:gray'>{source_label}</span>")
 
-        # Warnings section — parse errors and validation issues
-        if submod.warnings:
-            lines.append("<br><span style='color:#e66'><b>&#9888; Warnings</b></span>")
-            for warning in submod.warnings:
-                lines.append(f"<span style='color:#e66'>&#8226; {warning}</span>")
-
         return "<br>".join(lines)
 
+    def _render_submod_warnings(self, submod: SubMod) -> str:
+        """Build rich HTML for a SUBMOD with non-empty warnings (spec §7.8).
+
+        Replaces the normal metadata layout entirely — no priority line,
+        no conditions summary, no tags. The idea is that a warning submod
+        is broken; showing normal metadata implies the data is trustable.
+
+        Args:
+            submod: A SUBMOD whose ``has_warnings`` is ``True``.
+
+        Returns:
+            A RichText HTML string.
+        """
+        lines = [
+            f"<b>{submod.name}</b>",
+            f"<span style='color:gray'>{submod.config_path.parent}</span>",
+            "<span style='color:#e66'><b>"
+            "&#9888; WARNING \u2014 parse errors prevent normal display"
+            "</b></span>",
+            "",
+        ]
+        for warning in submod.warnings:
+            lines.append(
+                f"<span style='color:#e66'>&#8226; {warning}</span>"
+            )
+        return "<br>".join(lines)
 
     @staticmethod
     def _render_tag_pills(tags: set) -> str:

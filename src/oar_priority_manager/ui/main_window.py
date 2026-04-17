@@ -32,9 +32,11 @@ from oar_priority_manager.core.filter_engine import (
 from oar_priority_manager.core.models import PriorityStack, SubMod
 from oar_priority_manager.core.priority_resolver import build_stacks
 from oar_priority_manager.core.scanner import scan_mods
+from oar_priority_manager.core.warning_report import collect_warning_entries
 from oar_priority_manager.ui.conditions_panel import ConditionsPanel
 from oar_priority_manager.ui.details_panel import DetailsPanel
 from oar_priority_manager.ui.filter_builder import FilterBuilder
+from oar_priority_manager.ui.scan_issues_pane import ScanIssuesPane
 from oar_priority_manager.ui.search_bar import SearchBar, SearchMode, detect_search_mode
 from oar_priority_manager.ui.stacks_panel import StacksPanel
 from oar_priority_manager.ui.tree_model import SearchIndex
@@ -68,10 +70,14 @@ class MainWindow(QMainWindow):
         # Tracks the most recently applied advanced filter query.  None when
         # no advanced filter is active (text search is in effect instead).
         self._advanced_query: AdvancedFilterQuery | None = None
+        # Scan Issues log pane (non-modal; lazily created on first open).
+        self._scan_issues_pane: ScanIssuesPane | None = None
+        self._warning_count: int = 0
 
         self._setup_ui()
         self._connect_signals()
         self._apply_config()
+        self._refresh_warning_count()
 
     def _setup_ui(self) -> None:
         central = QWidget()
@@ -139,6 +145,9 @@ class MainWindow(QMainWindow):
         self._search_bar.refresh_requested.connect(self._on_refresh)
         self._search_bar.filter_mode_changed.connect(self._on_filter_mode_changed)
         self._search_bar.advanced_requested.connect(self._on_advanced_requested)
+        self._search_bar.scan_issues_requested.connect(
+            self._on_scan_issues_requested
+        )
         self._stacks_panel.action_triggered.connect(self._on_action)
         self._stacks_panel.competitor_focused.connect(self._on_competitor_focused)
         self._stacks_panel.navigate_to_submod.connect(  # issue #60
@@ -213,6 +222,51 @@ class MainWindow(QMainWindow):
         )
         dialog.filter_applied.connect(self._apply_advanced_filter)
         dialog.exec()
+
+    def _refresh_warning_count(self) -> None:
+        """Recompute warning count and push it to the search bar.
+
+        Counts SubMods whose ``has_warnings`` is ``True`` — NOT the total
+        number of warning strings, because the spec phrases the button
+        label as "how many submods are affected".
+        """
+        self._warning_count = sum(1 for sm in self._submods if sm.has_warnings)
+        self._search_bar.set_scan_issues_count(self._warning_count)
+
+    def _on_scan_issues_requested(self) -> None:
+        """Open (or re-focus) the Scan Issues log pane (spec §7.8).
+
+        First-click behaviour: build a list of WarningEntry from the
+        current submods, instantiate ``ScanIssuesPane``, wire its
+        ``navigate_to_submod`` signal to :meth:`_navigate_from_scan_issues`,
+        then show the dialog non-modally.
+
+        Subsequent clicks: refresh the existing pane's entries and raise
+        it to the top rather than creating a duplicate dialog.
+        """
+        entries = collect_warning_entries(self._submods)
+        if self._scan_issues_pane is None:
+            pane = ScanIssuesPane(entries=entries, parent=self)
+            pane.navigate_to_submod.connect(self._navigate_from_scan_issues)
+            self._scan_issues_pane = pane
+        else:
+            self._scan_issues_pane.set_entries(entries)
+        self._scan_issues_pane.show()
+        self._scan_issues_pane.raise_()
+        self._scan_issues_pane.activateWindow()
+
+    def _navigate_from_scan_issues(self, submod: SubMod) -> None:
+        """Forward a log-pane row activation to the tree panel.
+
+        The tree panel's ``select_submod`` does the scroll-into-view and
+        fires its own ``selection_changed`` signal, which ultimately
+        drives :class:`DetailsPanel` to render the parse-error view for
+        the warning node.
+
+        Args:
+            submod: The SubMod the user double-clicked on in the pane.
+        """
+        self._tree_panel.select_submod(submod)
 
     def _apply_advanced_filter(
         self, query: AdvancedFilterQuery
@@ -573,6 +627,12 @@ class MainWindow(QMainWindow):
         # Full data reload — all cached stack widgets are stale (issue #66).
         self._stacks_panel.clear_cache()
         self._stacks_panel.refresh(self._conflict_map)
+
+        self._refresh_warning_count()
+        if self._scan_issues_pane is not None and self._scan_issues_pane.isVisible():
+            self._scan_issues_pane.set_entries(
+                collect_warning_entries(self._submods)
+            )
 
     def _apply_config(self) -> None:
         """Apply persisted config values to UI widgets (spec §8.3)."""

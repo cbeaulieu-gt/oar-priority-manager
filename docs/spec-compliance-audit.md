@@ -145,9 +145,9 @@
 
 | Requirement | Status | Detail |
 |---|---|---|
-| Modal dialog with three pill buckets | ❌ STUB ONLY | `FilterBuilder` is a QDialog with just a "coming soon" label. |
-| REQUIRED (green) / ANY OF (yellow) / EXCLUDED (red) | ❌ MISSING | |
-| Autocompleting condition type dropdown | ❌ MISSING | |
+| Modal dialog with three pill buckets | ✅ | `FilterBuilder` composes three `BucketWidget`s (Required / Any Of / Excluded) with Apply, Clear, Cancel buttons. |
+| REQUIRED (green) / ANY OF (yellow) / EXCLUDED (red) | ✅ | `PillWidget` + `BucketWidget` implemented; dialog wired to `MainWindow._apply_advanced_filter` via `filter_applied` signal. |
+| Autocompleting condition type dropdown | ✅ | `BucketWidget` uses `QLineEdit` + `QCompleter` (case-insensitive, contains-match) sourced from `collect_known_condition_types`. |
 
 ### §7.8 Warning Indicators
 

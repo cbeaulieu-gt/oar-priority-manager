@@ -22,7 +22,10 @@ from PySide6.QtWidgets import (
 from oar_priority_manager.app.config import AppConfig
 from oar_priority_manager.core.anim_scanner import build_conflict_map, scan_animations
 from oar_priority_manager.core.filter_engine import (
+    AdvancedFilterQuery,
+    collect_known_condition_types,
     extract_condition_types,
+    match_advanced_filter,
     match_filter,
     parse_filter_query,
 )
@@ -31,6 +34,7 @@ from oar_priority_manager.core.priority_resolver import build_stacks
 from oar_priority_manager.core.scanner import scan_mods
 from oar_priority_manager.ui.conditions_panel import ConditionsPanel
 from oar_priority_manager.ui.details_panel import DetailsPanel
+from oar_priority_manager.ui.filter_builder import FilterBuilder
 from oar_priority_manager.ui.search_bar import SearchBar, SearchMode, detect_search_mode
 from oar_priority_manager.ui.stacks_panel import StacksPanel
 from oar_priority_manager.ui.tree_model import SearchIndex
@@ -61,6 +65,9 @@ class MainWindow(QMainWindow):
         # Tracks whether the search filter should hide non-matches (True)
         # or dim them (False, the default).  Updated via SearchBar.filter_mode_changed.
         self._hide_mode: bool = False
+        # Tracks the most recently applied advanced filter query.  None when
+        # no advanced filter is active (text search is in effect instead).
+        self._advanced_query: AdvancedFilterQuery | None = None
 
         self._setup_ui()
         self._connect_signals()
@@ -131,6 +138,7 @@ class MainWindow(QMainWindow):
         self._search_bar.search_changed.connect(self._on_search)
         self._search_bar.refresh_requested.connect(self._on_refresh)
         self._search_bar.filter_mode_changed.connect(self._on_filter_mode_changed)
+        self._search_bar.advanced_requested.connect(self._on_advanced_requested)
         self._stacks_panel.action_triggered.connect(self._on_action)
         self._stacks_panel.competitor_focused.connect(self._on_competitor_focused)
         self._stacks_panel.navigate_to_submod.connect(  # issue #60
@@ -173,6 +181,85 @@ class MainWindow(QMainWindow):
             hide_mode: True = hide non-matching items, False = dim them.
         """
         self._hide_mode = hide_mode
+
+    def _on_advanced_requested(self) -> None:
+        """Open the advanced filter builder dialog (spec §7.7).
+
+        Aggregates known condition types from the loaded submods, optionally
+        pre-populates the dialog from a currently-active condition-mode text
+        query, and connects the dialog's ``filter_applied`` signal so that
+        accepting the dialog immediately applies the advanced filter.
+
+        Per plan §8 decision 7 (latest wins): if the user opens the dialog
+        while a condition-mode text query is active, the dialog pre-populates
+        from that query's ``required`` and ``excluded`` sets.  ``any_of``
+        starts empty (text parser has no OR output — plan §8 decision 8).
+        """
+        known_conditions = collect_known_condition_types(self._submods)
+
+        initial_query: AdvancedFilterQuery | None = None
+        if self._search_bar.current_mode == SearchMode.CONDITION:
+            text = self._search_bar._input.text().strip()
+            fq = parse_filter_query(text)
+            initial_query = AdvancedFilterQuery(
+                required=fq.required,
+                excluded=fq.excluded,
+            )
+
+        dialog = FilterBuilder(
+            known_conditions=known_conditions,
+            initial_query=initial_query,
+            parent=self,
+        )
+        dialog.filter_applied.connect(self._apply_advanced_filter)
+        dialog.exec()
+
+    def _apply_advanced_filter(
+        self, query: AdvancedFilterQuery
+    ) -> None:
+        """Filter tree nodes using the advanced filter query (spec §7.7).
+
+        An empty query (all three buckets empty) clears the active filter
+        by calling ``TreePanel.filter_tree(None)``.  Otherwise walks the
+        three-level tree, tests each SUBMOD node against
+        :func:`~oar_priority_manager.core.filter_engine.match_advanced_filter`,
+        and forwards the matching id set to
+        :meth:`~oar_priority_manager.ui.tree_panel.TreePanel.filter_tree`.
+
+        Mirrors :meth:`_apply_condition_filter` in structure and stores the
+        applied query on ``self._advanced_query`` for future "edit existing
+        filter" flows.
+
+        Args:
+            query: The :class:`~oar_priority_manager.core.filter_engine\
+.AdvancedFilterQuery` emitted by the ``FilterBuilder`` dialog.
+        """
+        from oar_priority_manager.ui.tree_model import NodeType
+
+        if query.is_empty():
+            self._tree_panel.filter_tree(None)
+            self._advanced_query = query
+            return
+
+        matching: set[int] = set()
+        root = self._tree_panel.tree_root
+        for mod_node in root.children:
+            for rep_node in mod_node.children:
+                for sub_node in rep_node.children:
+                    if sub_node.node_type != NodeType.SUBMOD:
+                        continue
+                    sm = sub_node.submod
+                    if sm is None:
+                        continue
+                    if match_advanced_filter(
+                        sm.condition_types_present,
+                        sm.condition_types_negated,
+                        query,
+                    ):
+                        matching.add(id(sub_node))
+
+        self._tree_panel.filter_tree(matching, hide_mode=self._hide_mode)
+        self._advanced_query = query
 
     def _on_search(self, query: str) -> None:
         """Filter tree based on search query (spec §7.2).

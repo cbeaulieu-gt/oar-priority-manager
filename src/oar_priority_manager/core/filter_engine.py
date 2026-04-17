@@ -1,6 +1,7 @@
 """Condition-tree walker and search-bar filter engine for OAR Priority Manager.
 
-See spec §6.2 (filter_engine), §7.6 (condition filter semantics).
+See spec §6.2 (filter_engine), §7.6 (condition filter semantics),
+§7.7 (advanced filter builder semantics).
 
 This module operates purely on already-parsed condition data stored on SubMod
 objects (condition_types_present, condition_types_negated).  It does NOT read
@@ -19,10 +20,26 @@ parse_filter_query(text)
 
 match_filter(present, negated, query)
     Test whether a SubMod's condition sets satisfy a FilterQuery.
+
+AdvancedFilterQuery
+    Dataclass holding three bucket sets for the advanced filter builder:
+    required, any_of, excluded.
+
+match_advanced_filter(present, negated, query)
+    Test whether a SubMod's condition sets satisfy an AdvancedFilterQuery.
+
+collect_known_condition_types(submods)
+    Return sorted deduplicated union of condition types from submods plus a
+    static fallback list.
 """
 from __future__ import annotations
 
+from collections.abc import Iterable
 from dataclasses import dataclass, field
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from oar_priority_manager.core.models import SubMod
 
 # OAR group-node types — these are structural and must NOT appear in the
 # output sets produced by extract_condition_types.
@@ -182,3 +199,129 @@ def match_filter(
         return False
     # No excluded type may be present.
     return not (query.excluded & present)
+
+
+# ---------------------------------------------------------------------------
+# Advanced filter query (three-bucket semantics — spec §7.7)
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class AdvancedFilterQuery:
+    """Filter state produced by the advanced filter builder dialog.
+
+    Holds three independent bucket sets that are combined with AND semantics
+    when evaluating a SubMod.  See :func:`match_advanced_filter` for rules.
+
+    Attributes:
+        required: Condition type names that MUST ALL be present in a SubMod's
+            ``condition_types_present`` set.  Empty means no restriction.
+        any_of: Condition type names where AT LEAST ONE must be present.
+            Empty means no restriction (the bucket is a no-op).
+        excluded: Condition type names where NONE may be present.  Empty means
+            no restriction.  EXCLUDED wins on conflict: if a name appears in
+            both ``required`` and ``excluded``, the submod is rejected.
+    """
+
+    required: set[str] = field(default_factory=set)
+    any_of: set[str] = field(default_factory=set)
+    excluded: set[str] = field(default_factory=set)
+
+    def is_empty(self) -> bool:
+        """Return True iff all three bucket sets are empty.
+
+        An empty query matches every submod (no filter is applied).
+
+        Returns:
+            ``True`` when ``required``, ``any_of``, and ``excluded`` are all
+            empty; ``False`` otherwise.
+        """
+        return not self.required and not self.any_of and not self.excluded
+
+
+def match_advanced_filter(
+    present: set[str],
+    negated: set[str],  # noqa: ARG001 — reserved for future semantics
+    query: AdvancedFilterQuery,
+) -> bool:
+    """Test whether a SubMod's condition sets satisfy an :class:`AdvancedFilterQuery`.
+
+    The ``negated`` parameter is accepted for API symmetry with
+    :func:`match_filter` and for future extension, but is not used by the
+    current MVP semantics.
+
+    Matching rules (spec §7.7, plan §8 locked-in decisions):
+
+    * An empty query (all three sets empty) matches every SubMod.
+    * ``query.excluded & present`` must be empty — EXCLUDED wins on conflict.
+      If a condition name appears in both ``required`` and ``excluded`` and is
+      present, the submod is rejected (excluded check runs after required).
+    * ``query.required.issubset(present)`` must hold.  Empty ``required``
+      auto-passes.
+    * If ``query.any_of`` is non-empty, ``query.any_of & present`` must be
+      non-empty (at least one of the ANY OF names must be present).  An empty
+      ``any_of`` is a no-op and does not restrict matching.
+
+    Args:
+        present: Set of condition type names found anywhere in the SubMod's
+            condition tree (i.e. ``SubMod.condition_types_present``).
+        negated: Set of condition type names that appeared with ``negated:
+            True`` (i.e. ``SubMod.condition_types_negated``).  Currently unused.
+        query: The advanced filter query produced by the filter builder dialog.
+
+    Returns:
+        ``True`` if the SubMod passes all three bucket checks, ``False``
+        otherwise.
+    """
+    # EXCLUDED wins — check first so a conflict (name in both required and
+    # excluded) correctly rejects the submod.
+    if query.excluded & present:
+        return False
+    # All REQUIRED names must be present.
+    if not query.required.issubset(present):
+        return False
+    # ANY OF: only restricts when the bucket is non-empty.
+    return not (query.any_of and not query.any_of & present)
+
+
+# ---------------------------------------------------------------------------
+# Known condition-type enumeration (for UI dropdowns and filter builders)
+# ---------------------------------------------------------------------------
+
+
+def collect_known_condition_types(submods: Iterable[SubMod]) -> list[str]:
+    """Return sorted deduplicated union of condition types from submods.
+
+    Combines condition types found on the provided submods with a static
+    fallback list derived from ``tag_engine._DISTINCTIVE_CONDITIONS`` and
+    ``tag_engine._NON_DISTINCTIVE_CONDITIONS``.  The fallback guarantees a
+    non-empty result even when no submods have been scanned yet.
+
+    ``tag_engine`` is imported lazily inside this function to avoid a
+    circular-import between ``filter_engine`` and ``tag_engine`` (both are
+    in the same package and may import each other transitively through the
+    models layer).
+
+    Args:
+        submods: Any iterable of :class:`~oar_priority_manager.core.models\
+.SubMod` objects.  May be empty.
+
+    Returns:
+        A sorted ``list[str]`` of deduplicated condition type names, combining
+        every ``submod.condition_types_present`` with the static fallback.
+        Ascending alphabetical order.
+    """
+    # Lazy import to avoid circular dependency between filter_engine and
+    # tag_engine (both live in the same package and share the models layer).
+    from oar_priority_manager.core import tag_engine  # noqa: PLC0415
+
+    fallback: set[str] = (
+        set(tag_engine._DISTINCTIVE_CONDITIONS.keys())
+        | set(tag_engine._NON_DISTINCTIVE_CONDITIONS.keys())
+    )
+
+    known: set[str] = set(fallback)
+    for sm in submods:
+        known |= sm.condition_types_present
+
+    return sorted(known)

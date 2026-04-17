@@ -66,7 +66,7 @@
 | Sort: Mod alphabetical | ✅ | `sorted(grouped.keys())` in `tree_model.py`. |
 | Sort: Replacer alphabetical | ✅ | `sorted(replacer_dict.keys())`. |
 | Sort: Submod priority descending | ✅ | `sorted(..., key=lambda s: s.priority, reverse=True)`. |
-| **Sort toggle: Priority / Name** | ❌ MISSING | No toggle widget exists in `tree_panel.py`. Spec §7.3: "Sort toggle at the top of the panel: `Submods: [Priority] [Name]`". |
+| **Sort toggle: Priority / Name** | ✅ | Name/Priority toolbar in `tree_panel.py` (lines 65–121). Delivered by #45 (commit `cc08deb`). |
 | **Auto-expand single replacers** | ✅ | `auto_expand=single_replacer` in `tree_model.py`, `setExpanded(True)` in `tree_panel.py`. |
 | Status icons: ✓ enabled, ⚠ warning, ✗ disabled | ✅ | Present in `_populate()`. |
 | Selection fires signals to details/stacks/conditions | ✅ | `selection_changed` signal connected. |
@@ -199,7 +199,7 @@
 - ✅ CWD contains `ModOrganizer.ini` (fallback)
 - ✅ Walk up from CWD (fallback)
 - ✅ Hard error with descriptive message
-- ❌ **Manual directory picker dialog on failure** — spec says "dialog includes a directory picker as a last-resort manual override". Code raises `DetectionError` and prints to stderr, exits with return code 1. No dialog.
+- ✅ **Manual directory picker dialog on failure** — `instance_picker.py` presents a directory picker when detection fails. Delivered by #53 (commit `70ef236`).
 - ❌ **`%APPDATA%/oar-priority-manager/last-instance.json` persistence** — not implemented.
 
 ---
@@ -236,14 +236,14 @@
 
 12. **Formatted condition display** (REQUIRED / ONE OF / EXCLUDED three-bucket view)
 13. **Formatted/Raw JSON toggle** in conditions panel header
-14. **Sort toggle** (Priority / Name) in tree panel
+14. ~~**Sort toggle** (Priority / Name) in tree panel~~ — ✅ delivered by #45
 15. **Shift to Priority N** button — core `shift()` exists but no UI
 16. **Animation filter input** in stacks toolbar
 17. **Collapse-winning button** in stacks toolbar
-18. **Advanced filter builder** — stub only, no pill buckets
+18. ~~**Advanced filter builder** — stub only, no pill buckets~~ — ✅ delivered by #49
 19. **Condition filter mode** detection in search bar
 20. ~~**Scan issues (N) log pane** with file paths and error details~~ — ✅ delivered by #51
 21. **EXTERNAL OVERRIDE badge** in details panel
-22. **Manual directory picker** dialog on detection failure
+22. ~~**Manual directory picker** dialog on detection failure~~ — ✅ delivered by #53
 23. **Keyboard focus on search bar at launch**
 24. ~~**Warning items show parse errors in details panel** instead of generic text~~ — ✅ delivered by #51

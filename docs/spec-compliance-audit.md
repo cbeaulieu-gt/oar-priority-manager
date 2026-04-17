@@ -154,9 +154,9 @@
 | Requirement | Status | Detail |
 |---|---|---|
 | ⚠ icon in tree | ✅ | Present in `tree_panel._populate()`. |
-| **Clicking warning item shows errors in details** | ❌ MISSING | Warning items show the same generic details as normal items. No warning text displayed. |
+| **Clicking warning item shows errors in details** | ✅ | Warning submods render a parse-error-only view in the details panel showing name, path, WARNING banner, and per-warning bullets. Delivered by #51. |
 | **Action buttons disabled for warning items** | ❌ MISSING | |
-| **Scan issues (N) button in top bar** | ❌ MISSING | No scan issues button or log pane. |
+| **Scan issues (N) button in top bar** | ✅ | Button placed between Advanced and Refresh on SearchBar; label 'Scan issues (N)'; opens non-modal log pane listing every warning. Delivered by #51. |
 
 ---
 
@@ -211,7 +211,7 @@
 | Load with warnings (don't abort scan) | ✅ | Parser returns warnings, scanner collects them. |
 | ⚠ icon on warning items | ✅ | In tree. |
 | **Edits blocked on warning items** | ❌ MISSING | Action buttons don't check `has_warnings`. |
-| **Scan issues (N) button** | ❌ MISSING | No log pane. |
+| **Scan issues (N) button** | ✅ | Non-modal ScanIssuesPane (QDialog) with 5-column table, Copy All button, and double-click-to-navigate. Delivered by #51. |
 | **Modal dialog for hard errors** | ❌ MISSING | Prints to stderr and exits. |
 
 ---

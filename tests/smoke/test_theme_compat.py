@@ -119,9 +119,8 @@ def _apply_qt_material(app: QApplication) -> None:
     Args:
         app: The running QApplication instance.
     """
-    from qt_material import apply_stylesheet
-
-    apply_stylesheet(app, theme="dark_teal.xml")
+    qt_material = pytest.importorskip("qt_material")
+    qt_material.apply_stylesheet(app, theme="dark_teal.xml")
 
 
 def _apply_pyqtdarktheme(app: QApplication) -> None:
@@ -130,8 +129,7 @@ def _apply_pyqtdarktheme(app: QApplication) -> None:
     Args:
         app: The running QApplication instance.
     """
-    import qdarktheme
-
+    qdarktheme = pytest.importorskip("qdarktheme")
     qdarktheme.setup_theme("dark")
 
 
@@ -141,8 +139,7 @@ def _apply_qdarkstyle(app: QApplication) -> None:
     Args:
         app: The running QApplication instance.
     """
-    import qdarkstyle
-
+    qdarkstyle = pytest.importorskip("qdarkstyle")
     app.setStyleSheet(qdarkstyle.load_stylesheet(qt_api="pyside6"))
 
 

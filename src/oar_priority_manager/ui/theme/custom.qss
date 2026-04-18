@@ -34,6 +34,8 @@
  *                dark_blue.xml base (#31363b); primary content tint
  *     #2a2d33  — ConditionsPanel / DetailsPanel bg: ~8% darker than
  *                dark_blue.xml base (#31363b); support-pane tint
+ *     #9ba3c4  — ConditionsPanel muted subtext (stats / placeholder):
+ *                readable blue-grey on #2a2d33 bg (~7:1 contrast)
  */
 
 
@@ -193,16 +195,17 @@ QLabel#StacksPanel_configOnlyInfo {
    ========================================================================== */
 
 QLabel#ConditionsPanel_statsLabel {
-    /* legibility: palette(mid) too dim on dark_blue.xml;
-       #565f89 is the original muted-blue-grey that remains readable */
-    color: #565f89;
+    /* legibility: #565f89 on the new ConditionsPanel bg (#2a2d33) gives only
+       ~2.7:1 contrast (fails WCAG AA). #9ba3c4 is a brighter blue-grey that
+       preserves the "muted subtext" intent while hitting ~7:1 contrast. */
+    color: #9ba3c4;
     padding: 4px 8px;
 }
 
 QLabel#ConditionsPanel_placeholder {
-    /* legibility: palette(mid) too dim on dark_blue.xml;
-       #565f89 is the original muted-blue-grey that remains readable */
-    color: #565f89;
+    /* legibility: same reasoning as statsLabel — bumped from #565f89 to
+       #9ba3c4 for readable contrast against #2a2d33 ConditionsPanel bg. */
+    color: #9ba3c4;
     padding: 8px;
 }
 

@@ -30,6 +30,10 @@
  *                ("same-mod siblings" grouping hint, visually distinct)
  *     #6af     — config-only info label light-blue text
  *                ("informational, not a warning")
+ *     #3d4455  — StacksPanel bg: blue-shifted, ~15% lighter than
+ *                dark_blue.xml base (#31363b); primary content tint
+ *     #2a2d33  — ConditionsPanel / DetailsPanel bg: ~8% darker than
+ *                dark_blue.xml base (#31363b); support-pane tint
  */
 
 
@@ -250,33 +254,50 @@ QLineEdit#SearchBar_input[conditionMode="false"] {
 
 
 /* ==========================================================================
-   Pane-level borders — visual hierarchy (issue #98)
+   Pane-level backgrounds and borders — visual hierarchy (issue #98)
 
-   Approach: transparent pane backgrounds + 1px solid palette(mid) border
-   around each content pane root widget.  This creates a clear boundary
-   between panes without introducing tint colours that could fight the
-   theme's own colour palette.
+   Three-tone hierarchy:
+     StacksPanel (center/primary)   — #3d4455: blue-shifted, visibly lighter
+                                      than the theme base (#31363b), making
+                                      the priority-stacks content area stand
+                                      out as the primary work surface.
+     ConditionsPanel / DetailsPanel — #2a2d33: slightly darker/cooler than
+                                      the theme base (#31363b), receding
+                                      behind the centre so the eye reads the
+                                      hierarchy as primary → support.
+
+   Why hex-locked instead of palette(alternate-base)?
+     qt-material does not populate AlternateBase — it remains whatever the
+     Fusion style happens to set, which on dark_blue.xml happens to equal
+     the same value as Base/Window.  Using it would produce no visible
+     change, hence explicit hex values anchored to the actual theme base
+     (#31363b = secondaryDarkColor in dark_blue.xml).
 
    palette(mid) is used throughout for borders — it is the theme-provided
-   "mid-tone" role that sits between the window background and the text
-   colour, giving a visible but non-distracting separator on dark_blue.xml.
+   "mid-tone" role that gives a visible but non-distracting separator on
+   dark_blue.xml.
    ========================================================================== */
 
-/* Center pane (priority stacks) — border on all four sides to separate it
-   cleanly from the left column and right conditions pane. */
+/* Center pane (priority stacks) — lighter blue-shifted background gives
+   the primary content area visual prominence.  Hex-locked because this
+   tint is calibrated against dark_blue.xml's secondaryDarkColor (#31363b).
+   If the theme changes, re-evaluate this value. */
 QWidget#StacksPanel_root {
+    background: #3d4455;
     border: 1px solid palette(mid);
 }
 
-/* Right pane (conditions) — border on all four sides; right edge also
-   bordered so the pane reads as a contained column rather than open air. */
+/* Right pane (conditions) — subtly darker than base so it recedes behind
+   the center pane, forming the lower tier of the three-tone hierarchy. */
 QWidget#ConditionsPanel_root {
+    background: #2a2d33;
     border: 1px solid palette(mid);
 }
 
-/* Bottom-left pane (details) — border on all four sides; lives inside the
-   left vertical splitter so the border separates it from the tree above. */
+/* Bottom-left pane (details) — same receding tone as ConditionsPanel;
+   both support panes share the same depth so they read as a pair. */
 QWidget#DetailsPanel_root {
+    background: #2a2d33;
     border: 1px solid palette(mid);
 }
 

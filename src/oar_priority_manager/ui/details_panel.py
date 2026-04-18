@@ -17,6 +17,9 @@ class DetailsPanel(QWidget):
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
+        # Object name targets QWidget#DetailsPanel_root in custom.qss for
+        # the pane-level border / background rule (issue #98).
+        self.setObjectName("DetailsPanel_root")
         layout = QVBoxLayout(self)
         layout.setContentsMargins(4, 4, 4, 4)
         self._label = QLabel("Select an item in the tree to see details.")

@@ -247,3 +247,58 @@ QLineEdit#SearchBar_input[conditionMode="false"] {
     border: none;
     background: palette(base);
 }
+
+
+/* ==========================================================================
+   Pane-level borders — visual hierarchy (issue #98)
+
+   Approach: transparent pane backgrounds + 1px solid palette(mid) border
+   around each content pane root widget.  This creates a clear boundary
+   between panes without introducing tint colours that could fight the
+   theme's own colour palette.
+
+   palette(mid) is used throughout for borders — it is the theme-provided
+   "mid-tone" role that sits between the window background and the text
+   colour, giving a visible but non-distracting separator on dark_blue.xml.
+   ========================================================================== */
+
+/* Center pane (priority stacks) — border on all four sides to separate it
+   cleanly from the left column and right conditions pane. */
+QWidget#StacksPanel_root {
+    border: 1px solid palette(mid);
+}
+
+/* Right pane (conditions) — border on all four sides; right edge also
+   bordered so the pane reads as a contained column rather than open air. */
+QWidget#ConditionsPanel_root {
+    border: 1px solid palette(mid);
+}
+
+/* Bottom-left pane (details) — border on all four sides; lives inside the
+   left vertical splitter so the border separates it from the tree above. */
+QWidget#DetailsPanel_root {
+    border: 1px solid palette(mid);
+}
+
+
+/* ==========================================================================
+   QSplitter handles — visible grab rails (issue #98)
+
+   2px width/height with palette(mid) fill.  This matches the border colour
+   used on the pane roots above so the splitter handle reads as the same
+   visual language as the pane borders rather than a separate design element.
+   ========================================================================== */
+
+/* Horizontal splitter (outer three-column layout) */
+QSplitter::handle:horizontal {
+    /* palette(mid): same separator tone as the pane borders above */
+    background: palette(mid);
+    width: 2px;
+}
+
+/* Vertical splitter (left column: tree above, details below) */
+QSplitter::handle:vertical {
+    /* palette(mid): same separator tone as the pane borders above */
+    background: palette(mid);
+    height: 2px;
+}

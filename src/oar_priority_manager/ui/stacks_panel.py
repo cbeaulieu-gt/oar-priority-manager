@@ -299,6 +299,9 @@ class StacksPanel(QWidget):
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
+        # Object name targets QWidget#StacksPanel_root in custom.qss for
+        # the pane-level border / background rule (issue #98).
+        self.setObjectName("StacksPanel_root")
         self._conflict_map = conflict_map
         self._current_submod: SubMod | None = None
         self._relative_mode = True

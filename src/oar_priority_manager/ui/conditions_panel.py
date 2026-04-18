@@ -33,6 +33,9 @@ class ConditionsPanel(QWidget):
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
+        # Object name targets QWidget#ConditionsPanel_root in custom.qss for
+        # the pane-level border / background rule (issue #98).
+        self.setObjectName("ConditionsPanel_root")
         self._current_submod: SubMod | None = None
         self._show_formatted: bool = True
         self._setup_ui()

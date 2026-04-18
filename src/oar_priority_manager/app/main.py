@@ -14,6 +14,12 @@ from pathlib import Path
 from PySide6.QtWidgets import QApplication
 from qt_material import apply_stylesheet
 
+# Path to the per-widget QSS override file, relative to this module.
+# Loaded after apply_stylesheet() so our rules layer on top of the theme.
+_CUSTOM_QSS_PATH = (
+    Path(__file__).parent.parent / "ui" / "theme" / "custom.qss"
+)
+
 from oar_priority_manager.app.config import (
     DetectionError,
     detect_instance_root,
@@ -84,6 +90,11 @@ def main(argv: list[str] | None = None) -> int:
     app = QApplication(sys.argv[:1] + ["-platform", "windows"])
     app.setApplicationName("OAR Priority Manager")
     apply_stylesheet(app, theme="dark_blue.xml")
+
+    # Append per-widget overrides defined in custom.qss.  Using
+    # app.styleSheet() + override preserves the qt-material base rules.
+    _override = _CUSTOM_QSS_PATH.read_text(encoding="utf-8")
+    app.setStyleSheet(app.styleSheet() + _override)
 
     try:
         instance_root = detect_instance_root(

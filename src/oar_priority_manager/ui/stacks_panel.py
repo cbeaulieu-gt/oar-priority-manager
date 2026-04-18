@@ -57,7 +57,8 @@ class _StackSection(QWidget):
         # Flat button acts as a toggle header (issue #35)
         self._header_btn = QPushButton()
         self._header_btn.setFlat(True)
-        self._header_btn.setStyleSheet("text-align: left; padding: 2px 6px;")
+        # Object name matches QPushButton#StackSection_headerBtn in custom.qss
+        self._header_btn.setObjectName("StackSection_headerBtn")
         self._header_btn.setSizePolicy(
             QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed
         )
@@ -135,17 +136,19 @@ def _make_competitor_row(
     btn = QPushButton()
     btn.setFlat(True)
 
-    # Red background for losing row; blue tint for the "you" row (issues #34, #72)
+    # Set object name and dynamic property so custom.qss can target the
+    # correct visual state without any inline stylesheet.
+    # competitorRole values:
+    #   "losing" — the row that beats the selected submod (red tint)
+    #   "you"    — the selected submod's own row (blue tint)
+    #   ""       — normal competitor row
+    btn.setObjectName("CompetitorRow")
     if is_losing_row:
-        bg = "background: #4a2020;"
+        btn.setProperty("competitorRole", "losing")
     elif is_you:
-        bg = "background: #1a2a3a;"
+        btn.setProperty("competitorRole", "you")
     else:
-        bg = ""
-    btn.setStyleSheet(
-        f"QPushButton {{ text-align: left; padding: 1px 2px; {bg} }}"
-        "QPushButton:hover { background: rgba(255,255,255,0.05); }"
-    )
+        btn.setProperty("competitorRole", "")
 
     row_layout = QHBoxLayout(btn)
     row_layout.setContentsMargins(2, 1, 2, 1)
@@ -164,7 +167,8 @@ def _make_competitor_row(
     prio_lbl = QLabel(val_text)
     prio_lbl.setFixedWidth(prio_width)
     prio_lbl.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
-    prio_lbl.setStyleSheet("color: #aaa;")
+    # Object name matches QLabel#CompetitorRow_prioLabel in custom.qss
+    prio_lbl.setObjectName("CompetitorRow_prioLabel")
     row_layout.addWidget(prio_lbl)
 
     # -- Owner / name --
@@ -222,11 +226,8 @@ class _ModGroupRow(QWidget):
         # Summary button — acts as the toggle handle
         self._btn = QPushButton()
         self._btn.setFlat(True)
-        self._btn.setStyleSheet(
-            "QPushButton { text-align: left; padding: 2px 8px;"
-            "  color: #8ab; font-style: italic; }"
-            "QPushButton:hover { background: rgba(255,255,255,0.05); }"
-        )
+        # Object name matches QPushButton#ModGroupRow_btn in custom.qss
+        self._btn.setObjectName("ModGroupRow_btn")
         self._btn.setSizePolicy(
             QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed
         )
@@ -335,44 +336,18 @@ class StacksPanel(QWidget):
         toolbar.setSpacing(4)
 
         # -- Segmented Relative | Absolute toggle (issue #69) --
-        # Two checkable QPushButtons styled to sit flush with radius only on
-        # outside corners, giving the appearance of a single segmented control.
-        _seg_checked = (
-            "QPushButton:checked {"
-            "  background: #3a3a5a;"
-            "  font-weight: bold;"
-            "  border: 1px solid #5a5a8a;"
-            "}"
-        )
-        _seg_unchecked = (
-            "QPushButton {"
-            "  background: #2a2a2a;"
-            "  border: 1px solid #444;"
-            "  padding: 3px 10px;"
-            "}"
-            "QPushButton:hover { background: #333; }"
-        )
-
+        # Two checkable QPushButtons styled as a single segmented control.
+        # Object names match QPushButton#SegToggle_left / #SegToggle_right
+        # in custom.qss.
         self._rel_btn = QPushButton("Relative")
         self._rel_btn.setCheckable(True)
         self._rel_btn.setChecked(True)
-        self._rel_btn.setStyleSheet(
-            _seg_unchecked + _seg_checked
-            + "QPushButton { border-radius: 0px;"
-            "  border-top-left-radius: 4px;"
-            "  border-bottom-left-radius: 4px;"
-            "  border-right: none; }"
-        )
+        self._rel_btn.setObjectName("SegToggle_left")
 
         self._abs_btn = QPushButton("Absolute")
         self._abs_btn.setCheckable(True)
         self._abs_btn.setChecked(False)
-        self._abs_btn.setStyleSheet(
-            _seg_unchecked + _seg_checked
-            + "QPushButton { border-radius: 0px;"
-            "  border-top-right-radius: 4px;"
-            "  border-bottom-right-radius: 4px; }"
-        )
+        self._abs_btn.setObjectName("SegToggle_right")
 
         # QButtonGroup enforces mutual exclusivity (issue #69)
         self._mode_group = QButtonGroup(self)
@@ -466,10 +441,8 @@ class StacksPanel(QWidget):
         # ---- Toast notification (issue #37, spec §7.4) ----
         self._toast = QLabel()
         self._toast.setContentsMargins(8, 4, 8, 4)
-        self._toast.setStyleSheet(
-            "background: #1a3a1a; color: #4a9;"
-            " padding: 4px 8px; border-radius: 4px;"
-        )
+        # Object name matches QLabel#StacksPanel_toast in custom.qss
+        self._toast.setObjectName("StacksPanel_toast")
         self._toast.setWordWrap(True)
         self._toast.hide()
         layout.addWidget(self._toast)
@@ -495,9 +468,8 @@ class StacksPanel(QWidget):
         self._loading_label.setAlignment(
             Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignVCenter
         )
-        self._loading_label.setStyleSheet(
-            "color: #888; font-style: italic; padding: 24px;"
-        )
+        # Object name matches QLabel#StacksPanel_loadingLabel in custom.qss
+        self._loading_label.setObjectName("StacksPanel_loadingLabel")
         self._loading_label.hide()
         # Insert it into the outer layout BEFORE the scroll area so it
         # overlays the header area — we instead add it into the content
@@ -676,7 +648,9 @@ class StacksPanel(QWidget):
             )
             info.setWordWrap(True)
             info.setTextFormat(Qt.TextFormat.PlainText)
-            info.setStyleSheet("color: #6af; padding: 8px;")
+            # Object name matches QLabel#StacksPanel_configOnlyInfo in
+            # custom.qss
+            info.setObjectName("StacksPanel_configOnlyInfo")
             self._content_layout.addWidget(info)
             self._content_layout.addStretch()
             return

@@ -302,6 +302,13 @@ class StacksPanel(QWidget):
         # Object name targets QWidget#StacksPanel_root in custom.qss for
         # the pane-level border / background rule (issue #98).
         self.setObjectName("StacksPanel_root")
+        # WA_StyledBackground is required so Qt actually paints the
+        # background: rule from custom.qss.  Without it, Qt silently skips
+        # background painting on plain QWidget subclasses — borders still
+        # render (they go through a different drawing path) but the fill
+        # colour is never applied.  This is the canonical fix for that
+        # well-known Qt/PySide6 gotcha.
+        self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
         self._conflict_map = conflict_map
         self._current_submod: SubMod | None = None
         self._relative_mode = True

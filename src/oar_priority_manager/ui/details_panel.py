@@ -20,6 +20,13 @@ class DetailsPanel(QWidget):
         # Object name targets QWidget#DetailsPanel_root in custom.qss for
         # the pane-level border / background rule (issue #98).
         self.setObjectName("DetailsPanel_root")
+        # WA_StyledBackground is required so Qt actually paints the
+        # background: rule from custom.qss.  Without it, Qt silently skips
+        # background painting on plain QWidget subclasses — borders still
+        # render (they go through a different drawing path) but the fill
+        # colour is never applied.  This is the canonical fix for that
+        # well-known Qt/PySide6 gotcha.
+        self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
         layout = QVBoxLayout(self)
         layout.setContentsMargins(4, 4, 4, 4)
         self._label = QLabel("Select an item in the tree to see details.")

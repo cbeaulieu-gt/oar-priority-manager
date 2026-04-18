@@ -45,6 +45,9 @@ QPushButton#SegToggle_right {
     border: 1px solid palette(mid);
     padding: 3px 10px;
     border-radius: 0px;
+    /* explicit text colour — theme default is too dim against
+       unchecked bg #2a2a2a (palette(button) on dark_blue.xml) */
+    color: #e0e0e0;
 }
 
 QPushButton#SegToggle_left:hover,
@@ -119,12 +122,12 @@ QPushButton#CompetitorRow:hover {
 
 /* ==========================================================================
    Competitor priority-value label (muted, right-aligned in each row)
-   palette(mid) maps to the mid-tone grey in the active palette — muted but
-   readable, adapts to theme changes.
    ========================================================================== */
 
 QLabel#CompetitorRow_prioLabel {
-    color: palette(mid);
+    /* legibility: palette(mid) too dim on dark_blue.xml;
+       #aaa is theme-independent readable grey */
+    color: #aaa;
 }
 
 
@@ -183,17 +186,19 @@ QLabel#StacksPanel_configOnlyInfo {
 
 /* ==========================================================================
    ConditionsPanel — muted stats and placeholder labels
-   palette(mid) replaces the hardcoded #565f89 muted-text colour since both
-   map to the same intent ("secondary/quiet text that adapts to the theme").
    ========================================================================== */
 
 QLabel#ConditionsPanel_statsLabel {
-    color: palette(mid);
+    /* legibility: palette(mid) too dim on dark_blue.xml;
+       #565f89 is the original muted-blue-grey that remains readable */
+    color: #565f89;
     padding: 4px 8px;
 }
 
 QLabel#ConditionsPanel_placeholder {
-    color: palette(mid);
+    /* legibility: palette(mid) too dim on dark_blue.xml;
+       #565f89 is the original muted-blue-grey that remains readable */
+    color: #565f89;
     padding: 8px;
 }
 

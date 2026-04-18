@@ -306,6 +306,41 @@ QWidget#DetailsPanel_root {
 
 
 /* ==========================================================================
+   Pane QScrollArea transparency (issue #98)
+
+   StacksPanel and ConditionsPanel each embed a QScrollArea that fills most
+   of the pane's visible area.  By default a QScrollArea's auto-generated
+   viewport widget paints palette(base) over everything, masking the pane
+   root's styled background entirely.  Net effect before this rule: the
+   carefully-tinted #3d4455 / #2a2d33 pane backgrounds existed only in the
+   narrow strips not covered by the scrollarea (header rows, stats footer),
+   while the bulk of each pane rendered whatever palette(base) resolves to
+   on the active theme — making the three-tone hierarchy invisible.
+
+   The selectors below walk QScrollArea → viewport (first child QWidget)
+   → content widget (grandchild QWidget), clearing the background on all
+   three so the pane root's own bg shows through.  Child widgets with an
+   explicit `background:` rule (CompetitorRow[competitorRole="losing"],
+   etc.) continue to paint normally — transparency propagates from the
+   ancestor, not to the descendant.
+
+   `border: none` on the scrollarea removes qt-material's default frame
+   so the pane's own palette(mid) border reads as the only visible edge.
+   ========================================================================== */
+
+QWidget#StacksPanel_root QScrollArea,
+QWidget#ConditionsPanel_root QScrollArea {
+    background: transparent;
+    border: none;
+}
+
+QWidget#StacksPanel_root QScrollArea > QWidget > QWidget,
+QWidget#ConditionsPanel_root QScrollArea > QWidget > QWidget {
+    background: transparent;
+}
+
+
+/* ==========================================================================
    QSplitter handles — visible grab rails (issue #98)
 
    2px width/height with palette(mid) fill.  This matches the border colour

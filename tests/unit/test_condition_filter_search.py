@@ -273,15 +273,20 @@ class TestSearchBarModeSwitch:
     def test_condition_mode_applies_blue_style(
         self, search_bar, qtbot
     ) -> None:
+        # Phase 1 migration: style is now driven by the conditionMode dynamic
+        # property + an app-level QSS rule (QLineEdit#SearchBar_input
+        # [conditionMode="true"]), not an inline setStyleSheet() call.
+        # Verify the property is set correctly — the QSS rule in custom.qss
+        # targets this property to render the blue border (#5b9bd5).
         search_bar._input.setText("NOT HasPerk")
-        # The stylesheet should contain the blue border colour
-        style = search_bar._input.styleSheet()
-        assert "#5b9bd5" in style
+        assert search_bar._input.property("conditionMode") == "true"
 
     def test_text_mode_clears_style(self, search_bar, qtbot) -> None:
+        # Phase 1 migration: style reset is driven by setting conditionMode
+        # property to "false", not by clearing an inline stylesheet.
         search_bar._input.setText("NOT HasPerk")
         search_bar._input.setText("normal text")
-        assert search_bar._input.styleSheet() == ""
+        assert search_bar._input.property("conditionMode") == "false"
 
     def test_condition_mode_sets_tooltip(self, search_bar, qtbot) -> None:
         search_bar._input.setText("NOT HasPerk")

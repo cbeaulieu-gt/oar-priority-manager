@@ -1,0 +1,363 @@
+/*
+ * custom.qss — OAR Priority Manager widget overrides
+ *
+ * Loaded AFTER qt-material's dark_blue.xml via
+ *   app.setStyleSheet(app.styleSheet() + override_text)
+ * in src/oar_priority_manager/app/main.py.
+ *
+ * Naming convention
+ * -----------------
+ *   Object-name selectors (QPushButton#Foo) are used for widget-specific
+ *   styles so rules target precisely the right widget.
+ *
+ * Colour policy
+ * -------------
+ *   palette() role references are preferred over hard-coded hex wherever
+ *   the intent is "adapt to the active theme".
+ *
+ *   Hardcoded hex is kept ONLY where the colour has clear semantic meaning
+ *   independent of the theme:
+ *     #4a2020  — competitor loser-row red  ("this row beats you")
+ *     #1a2a3a  — competitor "you" row blue ("this is your submod")
+ *     #1a3a1a  — toast success green bg    ("action succeeded")
+ *     #4a9     — toast success green text  ("action succeeded")
+ *     #5b9bd5  — search-bar condition-mode blue border (brand colour
+ *                matching the condition-filter concept; intentionally
+ *                distinct from the theme's highlight colour)
+ *     #1a2030  — search-bar condition-mode dark-blue bg (pairs with
+ *                #5b9bd5 border for a cohesive condition-mode indicator)
+ *     #8ab     — mod-group summary row teal-grey italic text
+ *                ("same-mod siblings" grouping hint, visually distinct)
+ *     #6af     — config-only info label light-blue text
+ *                ("informational, not a warning")
+ *     #3d4455  — StacksPanel bg: blue-shifted, ~15% lighter than
+ *                dark_blue.xml base (#31363b); primary content tint
+ *     #2a2d33  — ConditionsPanel / DetailsPanel bg: ~8% darker than
+ *                dark_blue.xml base (#31363b); support-pane tint
+ *     #9ba3c4  — ConditionsPanel muted subtext (stats / placeholder):
+ *                readable blue-grey on #2a2d33 bg (~7:1 contrast)
+ */
+
+
+/* ==========================================================================
+   Segmented toggle controls
+   Used by: tree_panel (Name/Priority), stacks_panel (Relative/Absolute),
+            conditions_panel (Formatted/JSON)
+   ========================================================================== */
+
+QPushButton#SegToggle_left,
+QPushButton#SegToggle_right {
+    background: palette(button);
+    border: 1px solid palette(mid);
+    padding: 3px 10px;
+    border-radius: 0px;
+    /* explicit text colour — theme default is too dim against
+       unchecked bg #2a2a2a (palette(button) on dark_blue.xml) */
+    color: #e0e0e0;
+}
+
+QPushButton#SegToggle_left:hover,
+QPushButton#SegToggle_right:hover {
+    background: palette(midlight);
+}
+
+QPushButton#SegToggle_left:checked,
+QPushButton#SegToggle_right:checked {
+    /* #3a3a5a / #5a5a8a: blue-tinted checked state.
+       Kept hardcoded — this is a brand/accent tone for "active segment",
+       intentionally richer than the plain palette(highlight) which on
+       dark_blue.xml renders too brightly for a toggle button. */
+    background: #3a3a5a;
+    font-weight: bold;
+    border: 1px solid #5a5a8a;
+}
+
+QPushButton#SegToggle_left {
+    border-top-left-radius: 4px;
+    border-bottom-left-radius: 4px;
+    border-right: none;
+}
+
+QPushButton#SegToggle_right {
+    border-top-right-radius: 4px;
+    border-bottom-right-radius: 4px;
+}
+
+
+/* ==========================================================================
+   StackSection collapsible header button
+   ========================================================================== */
+
+QPushButton#StackSection_headerBtn {
+    text-align: left;
+    padding: 2px 6px;
+}
+
+
+/* ==========================================================================
+   Competitor rows
+   Three visual states driven by the competitorRole dynamic property:
+     "losing"  — the row that beats the selected submod (red tint)
+     "you"     — the selected submod's own row (blue tint)
+     ""        — normal competitor row (no background override)
+   ========================================================================== */
+
+QPushButton#CompetitorRow[competitorRole="losing"] {
+    /* #4a2020: semantic red — "this competitor is beating you" */
+    background: #4a2020;
+    text-align: left;
+    padding: 1px 2px;
+}
+
+QPushButton#CompetitorRow[competitorRole="you"] {
+    /* #1a2a3a: semantic blue — "this is your submod" */
+    background: #1a2a3a;
+    text-align: left;
+    padding: 1px 2px;
+}
+
+QPushButton#CompetitorRow[competitorRole=""] {
+    text-align: left;
+    padding: 1px 2px;
+}
+
+QPushButton#CompetitorRow:hover {
+    background: rgba(255, 255, 255, 0.05);
+}
+
+
+/* ==========================================================================
+   Competitor priority-value label (muted, right-aligned in each row)
+   ========================================================================== */
+
+QLabel#CompetitorRow_prioLabel {
+    /* legibility: palette(mid) too dim on dark_blue.xml;
+       #aaa is theme-independent readable grey */
+    color: #aaa;
+}
+
+
+/* ==========================================================================
+   ModGroup summary row (same-mod sibling collapse button)
+   ========================================================================== */
+
+QPushButton#ModGroupRow_btn {
+    /* #8ab: teal-grey italic — visually distinct "grouping" hint */
+    text-align: left;
+    padding: 2px 8px;
+    color: #8ab;
+    font-style: italic;
+}
+
+QPushButton#ModGroupRow_btn:hover {
+    background: rgba(255, 255, 255, 0.05);
+}
+
+
+/* ==========================================================================
+   Toast notification (StacksPanel)
+   ========================================================================== */
+
+QLabel#StacksPanel_toast {
+    /* #1a3a1a / #4a9: semantic green — success/action feedback */
+    background: #1a3a1a;
+    color: #4a9;
+    padding: 4px 8px;
+    border-radius: 4px;
+}
+
+
+/* ==========================================================================
+   Loading placeholder label (StacksPanel)
+   palette(mid) for muted "loading…" text — theme-adaptive.
+   ========================================================================== */
+
+QLabel#StacksPanel_loadingLabel {
+    color: palette(mid);
+    font-style: italic;
+    padding: 24px;
+}
+
+
+/* ==========================================================================
+   Config-only submod info label (StacksPanel)
+   ========================================================================== */
+
+QLabel#StacksPanel_configOnlyInfo {
+    /* #6af: informational light-blue — "this is not a warning" */
+    color: #6af;
+    padding: 8px;
+}
+
+
+/* ==========================================================================
+   ConditionsPanel — muted stats and placeholder labels
+   ========================================================================== */
+
+QLabel#ConditionsPanel_statsLabel {
+    /* legibility: #565f89 on the new ConditionsPanel bg (#2a2d33) gives only
+       ~2.7:1 contrast (fails WCAG AA). #9ba3c4 is a brighter blue-grey that
+       preserves the "muted subtext" intent while hitting ~7:1 contrast. */
+    color: #9ba3c4;
+    padding: 4px 8px;
+}
+
+QLabel#ConditionsPanel_placeholder {
+    /* legibility: same reasoning as statsLabel — bumped from #565f89 to
+       #9ba3c4 for readable contrast against #2a2d33 ConditionsPanel bg. */
+    color: #9ba3c4;
+    padding: 8px;
+}
+
+
+/* ==========================================================================
+   ConditionsPanel — PRESET expandable card
+   palette(base) for the card background (slightly elevated surface),
+   palette(mid) for the border — both theme-adaptive.
+   ========================================================================== */
+
+QWidget#ConditionsPanel_presetCard {
+    background: palette(base);
+    border: 1px solid palette(mid);
+    border-radius: 6px;
+}
+
+
+/* ==========================================================================
+   PillWidget — condition-name chip (filter builder)
+   Uses palette roles throughout — identical semantic intent to the original
+   inline style in filter_pill.py._apply_style().
+   ========================================================================== */
+
+PillWidget {
+    border: 1px solid palette(mid);
+    border-radius: 8px;
+    padding: 2px 6px;
+    background: palette(button);
+}
+
+
+/* ==========================================================================
+   SearchBar condition-mode indicator
+   Applied to QLineEdit#SearchBar_input when conditionMode property = "true".
+   ========================================================================== */
+
+QLineEdit#SearchBar_input[conditionMode="true"] {
+    /* #5b9bd5: condition-mode blue border (brand/semantic colour) */
+    border: 2px solid #5b9bd5;
+    /* #1a2030: dark blue background pairing the border */
+    background: #1a2030;
+}
+
+QLineEdit#SearchBar_input[conditionMode="false"] {
+    /* Reset to theme defaults when not in condition mode */
+    border: none;
+    background: palette(base);
+}
+
+
+/* ==========================================================================
+   Pane-level backgrounds and borders — visual hierarchy (issue #98)
+
+   Three-tone hierarchy:
+     StacksPanel (center/primary)   — #3d4455: blue-shifted, visibly lighter
+                                      than the theme base (#31363b), making
+                                      the priority-stacks content area stand
+                                      out as the primary work surface.
+     ConditionsPanel / DetailsPanel — #2a2d33: slightly darker/cooler than
+                                      the theme base (#31363b), receding
+                                      behind the centre so the eye reads the
+                                      hierarchy as primary → support.
+
+   Why hex-locked instead of palette(alternate-base)?
+     qt-material does not populate AlternateBase — it remains whatever the
+     Fusion style happens to set, which on dark_blue.xml happens to equal
+     the same value as Base/Window.  Using it would produce no visible
+     change, hence explicit hex values anchored to the actual theme base
+     (#31363b = secondaryDarkColor in dark_blue.xml).
+
+   palette(mid) is used throughout for borders — it is the theme-provided
+   "mid-tone" role that gives a visible but non-distracting separator on
+   dark_blue.xml.
+   ========================================================================== */
+
+/* Center pane (priority stacks) — lighter blue-shifted background gives
+   the primary content area visual prominence.  Hex-locked because this
+   tint is calibrated against dark_blue.xml's secondaryDarkColor (#31363b).
+   If the theme changes, re-evaluate this value. */
+QWidget#StacksPanel_root {
+    background: #3d4455;
+    border: 1px solid palette(mid);
+}
+
+/* Right pane (conditions) — subtly darker than base so it recedes behind
+   the center pane, forming the lower tier of the three-tone hierarchy. */
+QWidget#ConditionsPanel_root {
+    background: #2a2d33;
+    border: 1px solid palette(mid);
+}
+
+/* Bottom-left pane (details) — same receding tone as ConditionsPanel;
+   both support panes share the same depth so they read as a pair. */
+QWidget#DetailsPanel_root {
+    background: #2a2d33;
+    border: 1px solid palette(mid);
+}
+
+
+/* ==========================================================================
+   Pane QScrollArea transparency (issue #98)
+
+   StacksPanel and ConditionsPanel each embed a QScrollArea that fills most
+   of the pane's visible area.  By default a QScrollArea's auto-generated
+   viewport widget paints palette(base) over everything, masking the pane
+   root's styled background entirely.  Net effect before this rule: the
+   carefully-tinted #3d4455 / #2a2d33 pane backgrounds existed only in the
+   narrow strips not covered by the scrollarea (header rows, stats footer),
+   while the bulk of each pane rendered whatever palette(base) resolves to
+   on the active theme — making the three-tone hierarchy invisible.
+
+   The selectors below walk QScrollArea → viewport (first child QWidget)
+   → content widget (grandchild QWidget), clearing the background on all
+   three so the pane root's own bg shows through.  Child widgets with an
+   explicit `background:` rule (CompetitorRow[competitorRole="losing"],
+   etc.) continue to paint normally — transparency propagates from the
+   ancestor, not to the descendant.
+
+   `border: none` on the scrollarea removes qt-material's default frame
+   so the pane's own palette(mid) border reads as the only visible edge.
+   ========================================================================== */
+
+QWidget#StacksPanel_root QScrollArea,
+QWidget#ConditionsPanel_root QScrollArea {
+    background: transparent;
+    border: none;
+}
+
+QWidget#StacksPanel_root QScrollArea > QWidget > QWidget,
+QWidget#ConditionsPanel_root QScrollArea > QWidget > QWidget {
+    background: transparent;
+}
+
+
+/* ==========================================================================
+   QSplitter handles — visible grab rails (issue #98)
+
+   2px width/height with palette(mid) fill.  This matches the border colour
+   used on the pane roots above so the splitter handle reads as the same
+   visual language as the pane borders rather than a separate design element.
+   ========================================================================== */
+
+/* Horizontal splitter (outer three-column layout) */
+QSplitter::handle:horizontal {
+    /* palette(mid): same separator tone as the pane borders above */
+    background: palette(mid);
+    width: 2px;
+}
+
+/* Vertical splitter (left column: tree above, details below) */
+QSplitter::handle:vertical {
+    /* palette(mid): same separator tone as the pane borders above */
+    background: palette(mid);
+    height: 2px;
+}

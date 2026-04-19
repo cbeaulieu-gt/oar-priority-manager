@@ -26,6 +26,12 @@ from oar_priority_manager.core.priority_resolver import build_stacks
 from oar_priority_manager.core.scanner import scan_mods
 from oar_priority_manager.core.tag_engine import apply_overrides, compute_tags
 
+# Path to the per-widget QSS override file, relative to this module.
+# Loaded after apply_stylesheet() so our rules layer on top of the theme.
+_CUSTOM_QSS_PATH = (
+    Path(__file__).parent.parent / "ui" / "theme" / "custom.qss"
+)
+
 logger = logging.getLogger(__name__)
 
 CONFIG_SUBDIR = "oar-priority-manager"
@@ -84,6 +90,11 @@ def main(argv: list[str] | None = None) -> int:
     app = QApplication(sys.argv[:1] + ["-platform", "windows"])
     app.setApplicationName("OAR Priority Manager")
     apply_stylesheet(app, theme="dark_blue.xml")
+
+    # Append per-widget overrides defined in custom.qss.  Using
+    # app.styleSheet() + override preserves the qt-material base rules.
+    _override = _CUSTOM_QSS_PATH.read_text(encoding="utf-8")
+    app.setStyleSheet(app.styleSheet() + _override)
 
     try:
         instance_root = detect_instance_root(

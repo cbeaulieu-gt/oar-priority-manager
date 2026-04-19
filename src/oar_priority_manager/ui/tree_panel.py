@@ -70,33 +70,12 @@ class TreePanel(QWidget):
         toolbar_layout.setContentsMargins(4, 4, 4, 2)
         toolbar_layout.setSpacing(0)
 
-        _seg_checked = (
-            "QPushButton:checked {"
-            "  background: #3a3a5a;"
-            "  font-weight: bold;"
-            "  border: 1px solid #5a5a8a;"
-            "}"
-        )
-        _seg_unchecked = (
-            "QPushButton {"
-            "  background: #2a2a2a;"
-            "  border: 1px solid #444;"
-            "  padding: 3px 10px;"
-            "}"
-            "QPushButton:hover { background: #333; }"
-        )
-
         self._name_btn = QPushButton("Name")
         self._name_btn.setCheckable(True)
         self._name_btn.setChecked(True)
         self._name_btn.setToolTip("Sort mods alphabetically (default)")
-        self._name_btn.setStyleSheet(
-            _seg_unchecked + _seg_checked
-            + "QPushButton { border-radius: 0px;"
-            "  border-top-left-radius: 4px;"
-            "  border-bottom-left-radius: 4px;"
-            "  border-right: none; }"
-        )
+        # Object name matches QPushButton#SegToggle_left in custom.qss
+        self._name_btn.setObjectName("SegToggle_left")
 
         self._priority_btn = QPushButton("Priority")
         self._priority_btn.setCheckable(True)
@@ -104,12 +83,8 @@ class TreePanel(QWidget):
         self._priority_btn.setToolTip(
             "Sort mods by their highest submod priority (descending)"
         )
-        self._priority_btn.setStyleSheet(
-            _seg_unchecked + _seg_checked
-            + "QPushButton { border-radius: 0px;"
-            "  border-top-right-radius: 4px;"
-            "  border-bottom-right-radius: 4px; }"
-        )
+        # Object name matches QPushButton#SegToggle_right in custom.qss
+        self._priority_btn.setObjectName("SegToggle_right")
 
         # QButtonGroup enforces mutual exclusivity
         self._sort_group = QButtonGroup(self)

@@ -15,7 +15,12 @@ import re
 from enum import Enum, auto
 
 from PySide6.QtCore import Signal
-from PySide6.QtWidgets import QHBoxLayout, QLineEdit, QPushButton, QWidget
+from PySide6.QtWidgets import (
+    QHBoxLayout,
+    QLineEdit,
+    QPushButton,
+    QWidget,
+)
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -35,15 +40,6 @@ _CONDITION_MODE_TOOLTIP = (
     "condition types in their config.\n"
     "Use NOT <Type> to exclude a condition type.\n"
     "Example: IsFemale NOT HasPerk"
-)
-
-# Stylesheet snippets applied to the QLineEdit
-_STYLE_NORMAL = ""
-_STYLE_CONDITION = (
-    "QLineEdit {"
-    "  border: 2px solid #5b9bd5;"
-    "  background: #1a2030;"
-    "}"
 )
 
 
@@ -134,6 +130,10 @@ class SearchBar(QWidget):
             "Search mods, submods, animations…  "
             "(use AND/OR/NOT or condition: for condition filter)"
         )
+        # Object name + dynamic property drive the condition-mode border style
+        # via QLineEdit#SearchBar_input[conditionMode="true"] in custom.qss.
+        self._input.setObjectName("SearchBar_input")
+        self._input.setProperty("conditionMode", "false")
         self._input.textChanged.connect(self._on_text_changed)
         layout.addWidget(self._input, stretch=1)
 
@@ -202,12 +202,27 @@ class SearchBar(QWidget):
         self.search_changed.emit(self._input.text())
 
     def _apply_mode_style(self) -> None:
-        """Update QLineEdit style and tooltip to reflect the current mode."""
-        if self._mode == SearchMode.CONDITION:
-            self._input.setStyleSheet(_STYLE_CONDITION)
+        """Update QLineEdit style and tooltip to reflect the current mode.
+
+        The visual indicator is driven by the ``conditionMode`` dynamic
+        property on the input widget, which is targeted by
+        ``QLineEdit#SearchBar_input[conditionMode="true"]`` in custom.qss.
+        Qt requires an explicit unpolish/polish cycle after a dynamic
+        property change for QSS attribute selectors to re-evaluate.
+        """
+        is_condition = self._mode == SearchMode.CONDITION
+        self._input.setProperty(
+            "conditionMode", "true" if is_condition else "false"
+        )
+        # Force Qt to re-evaluate the QSS property selector
+        style = self._input.style()
+        if style is not None:
+            style.unpolish(self._input)
+            style.polish(self._input)
+        self._input.update()
+        if is_condition:
             self._input.setToolTip(_CONDITION_MODE_TOOLTIP)
         else:
-            self._input.setStyleSheet(_STYLE_NORMAL)
             self._input.setToolTip("")
 
     # ------------------------------------------------------------------

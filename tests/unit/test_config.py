@@ -42,7 +42,19 @@ class TestInstanceDetection:
         result = detect_instance_root(cwd=nested)
         assert result == tmp_path
 
-    def test_no_detection_raises(self, tmp_path: Path):
+    def test_no_detection_raises(self, tmp_path: Path, monkeypatch):
+        """Step 4 (appdata cache) must be patched so the test is machine-independent.
+
+        Without the patch, a developer machine that has launched the app at
+        least once will have a valid last-instance.json in %APPDATA%, causing
+        step 4 to return a real path and preventing DetectionError from ever
+        being raised.  The monkeypatch forces load_last_instance to return
+        None, ensuring the full fallback chain exhausts at step 5.
+        """
+        monkeypatch.setattr(
+            "oar_priority_manager.app.config.load_last_instance",
+            lambda: None,
+        )
         with pytest.raises(DetectionError):
             detect_instance_root(cwd=tmp_path)
 

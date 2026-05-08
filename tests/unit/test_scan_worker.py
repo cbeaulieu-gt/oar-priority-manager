@@ -137,7 +137,7 @@ class TestScanWorkerHappyPath:
 
         def fake_scan_mods(mods_dir, overwrite_dir, on_progress=None):
             if on_progress is not None:
-                on_progress(1, 1)
+                on_progress(1, 1, "FakeSub")
             return [fake_submod]
 
         with (
@@ -241,7 +241,7 @@ class TestScanWorkerCancellation:
             QThread.currentThread().requestInterruption()
             # The on_progress callback will detect the flag and raise _Cancelled.
             if on_progress is not None:
-                on_progress(1, 1)
+                on_progress(1, 1, "FakeSub")
             return []
 
         with (
@@ -270,7 +270,7 @@ class TestScanWorkerCancellation:
             # Request interruption from within the worker thread.
             QThread.currentThread().requestInterruption()
             if on_progress is not None:
-                on_progress(1, 5)
+                on_progress(1, 5, "FakeSub")
             return []
 
         with (

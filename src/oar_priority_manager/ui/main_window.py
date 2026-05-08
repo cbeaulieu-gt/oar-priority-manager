@@ -627,61 +627,102 @@ class MainWindow(QMainWindow):
         self._on_refresh()
 
     def _on_refresh(self) -> None:
-        """Re-scan the VFS asynchronously and rebuild all models (spec §6.3 step 6).
+        """Re-scan the VFS with a modal progress dialog (spec §6.3 step 6).
 
-        Launches a ScanWorker on a background QThread so the GUI stays
-        responsive while scanning.  The UI re-renders when finished fires.
-        If a scan is already in progress the new request is ignored.
+        Shows a ``WindowModal`` :class:`~oar_priority_manager.ui\
+.scan_progress_dialog.ScanProgressDialog` before starting the worker so
+        the user cannot interact with the main window during the scan.
+        The dialog blocks via ``exec()`` until the scan completes, fails,
+        or is cancelled — eliminating the race condition where a delegate
+        paint or filter iteration could hold a stale ``self._submods``
+        reference while the worker's ``finished`` slot mutates it.
+
+        On successful completion, ``on_finished`` re-populates the panels
+        after the dialog closes.  On failure, a ``QMessageBox`` is shown.
+        Cancellation is a no-op (the user dismissed the dialog deliberately).
+
+        A guard prevents concurrent scans: if ``self._scan_thread`` is
+        already running, the new request is silently ignored.
         """
         if self._scan_thread is not None and self._scan_thread.isRunning():
             return
+
+        from oar_priority_manager.ui.scan_progress_dialog import (
+            ScanProgressDialog,
+        )
 
         worker = ScanWorker(instance_root=self._instance_root)
         self._scan_worker = worker  # keep strong ref; PySide6 slots are weak
         thread = QThread(self)
         worker.moveToThread(thread)
         thread.started.connect(worker.run)
+        self._scan_thread = thread
+
+        dialog = ScanProgressDialog(mode="refresh", parent=self)
+
+        result_holder: list[tuple] = []
+        error_holder: list[Exception] = []
 
         def on_finished(result: tuple) -> None:
-            submods, conflict_map, stacks = result
-            from oar_priority_manager.core.tag_engine import apply_overrides
-
-            apply_overrides(submods, self._config.tag_overrides)
-            self._submods = submods
-            self._conflict_map = conflict_map
-            self._stacks = stacks
-            self._tree_panel.refresh(self._submods)
-            # Full data reload — all cached stack widgets are stale (issue #66).
-            self._stacks_panel.clear_cache()
-            self._stacks_panel.refresh(self._conflict_map)
-            self._refresh_warning_count()
-            if (
-                self._scan_issues_pane is not None
-                and self._scan_issues_pane.isVisible()
-            ):
-                self._scan_issues_pane.set_entries(
-                    collect_warning_entries(self._submods)
-                )
-            thread.quit()
-            self._scan_thread = None
-            self._scan_worker = None
+            result_holder.append(result)
 
         def on_failed(exc: Exception) -> None:
-            thread.quit()
-            self._scan_thread = None
-            self._scan_worker = None
+            error_holder.append(exc)
+
+        # Wire worker signals → dialog slots (progress display + auto-dismiss)
+        worker.progress_updated.connect(dialog.on_progress)
+        worker.finished.connect(dialog.on_finished)
+        worker.failed.connect(dialog.on_failed)
+        worker.cancelled.connect(dialog.on_cancelled)
+
+        # Wire worker signals → local holders for post-dialog processing
+        worker.finished.connect(on_finished)
+        worker.failed.connect(on_failed)
+
+        # Wire cancel button → thread interruption
+        dialog.cancellation_requested.connect(thread.requestInterruption)
+
+        thread.start()
+        dialog.exec()  # blocks (WindowModal) until dialog is dismissed
+
+        thread.quit()
+        thread.wait()
+        self._scan_thread = None
+        self._scan_worker = None
+
+        if error_holder:
+            exc = error_holder[0]
             logger.error("Refresh scan failed: %s", exc, exc_info=exc)
             QMessageBox.warning(
                 self,
                 "Scan Failed",
                 f"Background scan failed:\n{exc}",
             )
+            return
 
-        worker.finished.connect(on_finished)
-        worker.failed.connect(on_failed)
+        if not result_holder:
+            # Cancelled — nothing to update.
+            return
 
-        self._scan_thread = thread
-        thread.start()
+        submods, conflict_map, stacks = result_holder[0]
+        from oar_priority_manager.core.tag_engine import apply_overrides
+
+        apply_overrides(submods, self._config.tag_overrides)
+        self._submods = submods
+        self._conflict_map = conflict_map
+        self._stacks = stacks
+        self._tree_panel.refresh(self._submods)
+        # Full data reload — all cached stack widgets are stale (issue #66).
+        self._stacks_panel.clear_cache()
+        self._stacks_panel.refresh(self._conflict_map)
+        self._refresh_warning_count()
+        if (
+            self._scan_issues_pane is not None
+            and self._scan_issues_pane.isVisible()
+        ):
+            self._scan_issues_pane.set_entries(
+                collect_warning_entries(self._submods)
+            )
 
     def _apply_config(self) -> None:
         """Apply persisted config values to UI widgets (spec §8.3)."""

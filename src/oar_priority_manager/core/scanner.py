@@ -158,7 +158,7 @@ def _build_submod(
 def scan_mods(
     mods_dir: Path,
     overwrite_dir: Path,
-    on_progress: Callable[[int, int], None] | None = None,
+    on_progress: Callable[[int, int, str], None] | None = None,
 ) -> list[SubMod]:
     """Scan the MO2 instance and build SubMod records for every OAR submod.
 
@@ -166,8 +166,10 @@ def scan_mods(
         mods_dir: Path to the MO2 mods/ directory.
         overwrite_dir: Path to the MO2 overwrite/ directory.
         on_progress: Optional callback invoked after each submod is built.
-            Called with (current, total) where current is the number of submods
-            built so far and total is the total number to build.
+            Called with ``(current, total, submod_name)`` where ``current``
+            is the number of submods built so far, ``total`` is the total
+            number to build, and ``submod_name`` is the display name of the
+            submod directory currently being processed.
 
     Returns:
         List of SubMod records. Submods with parse errors have non-empty warnings.
@@ -202,7 +204,7 @@ def scan_mods(
         )
         submods.append(sm)
         if on_progress is not None:
-            on_progress(len(submods), total)
+            on_progress(len(submods), total, sm.name)
 
     logger.info("Scanned %d submods from %s", len(submods), mods_dir)
     return submods

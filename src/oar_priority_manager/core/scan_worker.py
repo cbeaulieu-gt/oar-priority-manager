@@ -135,19 +135,22 @@ class ScanWorker(QObject):
         """Build the on_progress callable passed to scan_mods.
 
         The returned callable:
-        1. Emits ``progress_updated`` with stage ``"scan_mods"``.
+        1. Emits ``progress_updated`` with stage ``"scan_mods"`` and the
+           real submod name supplied by ``scan_mods``.
         2. Checks for a pending interruption after each submod; raises
            ``_Cancelled`` to unwind the pipeline when one is found.
 
         Returns:
-            A callable accepting ``(current: int, total: int)`` that
-            also receives the submod name via closure over the submods
-            list.  Because ``scan_mods`` only provides ``(current, total)``
-            the label is synthesised as ``f"submod {current}/{total}"``.
+            A callable accepting ``(current: int, total: int,
+            submod_name: str)`` that forwards the real submod display
+            name as the ``label`` field of ``progress_updated``.
         """
-        def on_progress(current: int, total: int) -> None:
-            label = f"submod {current}/{total}"
-            self.progress_updated.emit("scan_mods", current, total, label)
+        def on_progress(
+            current: int, total: int, submod_name: str
+        ) -> None:
+            self.progress_updated.emit(
+                "scan_mods", current, total, submod_name
+            )
             self._check_interruption()
 
         return on_progress

@@ -78,15 +78,21 @@ def run_scan(instance_root: Path) -> tuple:
 
 
 def _run_scan_blocking(instance_root: Path) -> tuple:
-    """Run the scan pipeline via ScanWorker, blocking until complete.
+    """Run the scan pipeline via ScanWorker with a startup progress dialog.
 
-    Uses a QEventLoop that exits when the worker emits finished or failed.
-    This pattern keeps the GUI thread's event loop alive during the wait
-    (important for splash screens, etc.) while still blocking main() from
-    proceeding until the first scan has data.
+    Constructs an ``ApplicationModal`` ``ScanProgressDialog`` and a
+    ``QEventLoop``.  The dialog is shown before the event loop starts so
+    the user sees scan progress from the very first frame.  The loop exits
+    when the worker emits ``finished``, ``failed``, or ``cancelled``.
+
+    On successful completion the dialog auto-dismisses after ~1 second
+    (driven by ``ScanProgressDialog.on_finished``).
+
+    On cancellation the user chose to abort startup, so the application
+    exits cleanly via ``sys.exit(0)``.
 
     If the worker fails, the exception captured by the ``failed`` signal is
-    re-raised so main() can handle it like any other startup error.
+    re-raised so ``main()`` can handle it like any other startup error.
 
     Args:
         instance_root: Path to the MO2 instance root.
@@ -98,31 +104,58 @@ def _run_scan_blocking(instance_root: Path) -> tuple:
         Exception: Re-raises whatever exception the worker captured if the
             scan pipeline raises unexpectedly.
     """
+    from oar_priority_manager.ui.scan_progress_dialog import ScanProgressDialog
+
     worker = ScanWorker(instance_root=instance_root)
     thread = QThread()
     worker.moveToThread(thread)
     thread.started.connect(worker.run)
 
+    dialog = ScanProgressDialog(mode="startup")
+
     loop = QEventLoop()
     result_holder: list[tuple] = []
     error_holder: list[Exception] = []
+    cancelled_holder: list[bool] = []
 
     def on_finished(result: tuple) -> None:
         result_holder.append(result)
-        loop.quit()
+        # dialog.on_finished auto-dismisses after 1 s via QTimer; the
+        # loop exits once the dialog's finished signal fires (accept/reject).
+        dialog.finished.connect(loop.quit)
 
     def on_failed(exc: Exception) -> None:
         error_holder.append(exc)
         loop.quit()
 
+    def on_cancelled() -> None:
+        cancelled_holder.append(True)
+        loop.quit()
+
+    # Wire worker signals → dialog slots
+    worker.progress_updated.connect(dialog.on_progress)
+    worker.finished.connect(dialog.on_finished)
+    worker.failed.connect(dialog.on_failed)
+    worker.cancelled.connect(dialog.on_cancelled)
+
+    # Wire worker signals → loop control
     worker.finished.connect(on_finished)
     worker.failed.connect(on_failed)
+    worker.cancelled.connect(on_cancelled)
 
+    # Wire cancel button → thread interruption
+    dialog.cancellation_requested.connect(thread.requestInterruption)
+
+    dialog.show()
     thread.start()
-    loop.exec()  # blocks until on_finished or on_failed calls loop.quit()
+    loop.exec()  # blocks until on_finished/on_failed/on_cancelled
 
     thread.quit()
     thread.wait()
+
+    if cancelled_holder:
+        logger.info("Startup scan cancelled by user — exiting.")
+        sys.exit(0)
 
     if error_holder:
         raise error_holder[0]

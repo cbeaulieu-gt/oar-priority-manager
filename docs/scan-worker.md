@@ -101,6 +101,74 @@ concurrent scans.
 
 ---
 
+---
+
+## Progress Dialog (`ScanProgressDialog`)
+
+`ScanProgressDialog` (`ui/scan_progress_dialog.py`) is the visual counterpart
+to `ScanWorker`.  It reads the worker's signals and renders a splash-style
+modal dialog with an overall progress bar, a per-stage label, a per-item
+submod name, and a Cancel button.
+
+### Stage weighting
+
+The overall progress bar maps the five pipeline stages to contiguous ranges:
+
+| Stage               | Start % | Weight % |
+|---------------------|---------|---------|
+| `detect`            | 0       | 5       |
+| `scan_mods`         | 5       | 55      |
+| `scan_animations`   | 60      | 30      |
+| `build_conflict_map`| 90      | 5       |
+| `build_stacks`      | 95      | 5       |
+
+Overall = start + (weight × current / total).  When `total = 0` (indeterminate
+stage boundary), only the start offset is shown.
+
+### Modality
+
+The dialog uses different modality depending on the context:
+
+| Context | Mode string | Modality | Parent |
+|---------|-------------|----------|--------|
+| Initial startup | `"startup"` | `ApplicationModal` (frameless) | `None` |
+| User-triggered refresh | `"refresh"` | `WindowModal` (title-bar chrome) | `MainWindow` |
+
+`WindowModal` is used for refresh because it blocks the main window (the only
+window that matters during a re-scan) while leaving other applications usable.
+`ApplicationModal` is used for startup because there is no parent window yet.
+
+### Cancel behaviour
+
+Clicking **Cancel**:
+1. Disables the button and updates the stage label to "Cancelling…".
+2. Emits `cancellation_requested`.
+3. The caller wires this to `thread.requestInterruption()`.
+
+The dialog does not close on cancel-click — it waits for the worker to emit
+`cancelled`, which calls `on_cancelled()` → `reject()`.  This keeps the user
+informed that cancellation is in progress.
+
+**Startup cancel**: `_run_scan_blocking` detects `cancelled` and calls
+`sys.exit(0)` — the user explicitly chose not to scan, so a clean exit is
+the right response.
+
+**Refresh cancel**: `_on_refresh` detects the empty `result_holder` after
+`dialog.exec()` returns and returns without updating the panels.  The
+existing data remains displayed.
+
+### Signal connections summary
+
+```
+worker.progress_updated  →  dialog.on_progress
+worker.finished          →  dialog.on_finished  (auto-dismiss after 1 s)
+worker.failed            →  dialog.on_failed    (immediate close)
+worker.cancelled         →  dialog.on_cancelled (immediate close)
+dialog.cancellation_requested  →  thread.requestInterruption
+```
+
+---
+
 ## Why Not Subclass QThread
 
 The Qt documentation and several Qt style guides recommend the **QObject +

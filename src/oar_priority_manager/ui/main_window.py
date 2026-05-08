@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, QThread
 from PySide6.QtGui import QKeySequence, QShortcut
 from PySide6.QtWidgets import (
     QHBoxLayout,
@@ -20,18 +20,17 @@ from PySide6.QtWidgets import (
 )
 
 from oar_priority_manager.app.config import AppConfig
-from oar_priority_manager.core.anim_scanner import build_conflict_map, scan_animations
+from oar_priority_manager.core.anim_scanner import build_conflict_map
 from oar_priority_manager.core.filter_engine import (
     AdvancedFilterQuery,
     collect_known_condition_types,
-    extract_condition_types,
     match_advanced_filter,
     match_filter,
     parse_filter_query,
 )
 from oar_priority_manager.core.models import PriorityStack, SubMod
 from oar_priority_manager.core.priority_resolver import build_stacks
-from oar_priority_manager.core.scanner import scan_mods
+from oar_priority_manager.core.scan_worker import ScanWorker
 from oar_priority_manager.core.warning_report import collect_warning_entries
 from oar_priority_manager.ui.conditions_panel import ConditionsPanel
 from oar_priority_manager.ui.details_panel import DetailsPanel
@@ -73,6 +72,8 @@ class MainWindow(QMainWindow):
         # Scan Issues log pane (non-modal; lazily created on first open).
         self._scan_issues_pane: ScanIssuesPane | None = None
         self._warning_count: int = 0
+        # Background scan thread; None when no scan is in progress.
+        self._scan_thread: QThread | None = None
 
         self._setup_ui()
         self._connect_signals()
@@ -619,35 +620,53 @@ class MainWindow(QMainWindow):
         self._on_refresh()
 
     def _on_refresh(self) -> None:
-        """Re-scan the VFS and rebuild all models (spec §6.3 step 6)."""
-        mods_dir = self._instance_root / "mods"
-        overwrite_dir = self._instance_root / "overwrite"
+        """Re-scan the VFS asynchronously and rebuild all models (spec §6.3 step 6).
 
-        self._submods = scan_mods(mods_dir, overwrite_dir)
-        scan_animations(self._submods)
-        self._conflict_map = build_conflict_map(self._submods)
-        self._stacks = build_stacks(self._conflict_map)
+        Launches a ScanWorker on a background QThread so the GUI stays
+        responsive while scanning.  The UI re-renders when finished fires.
+        If a scan is already in progress the new request is ignored.
+        """
+        if self._scan_thread is not None and self._scan_thread.isRunning():
+            return
 
-        for sm in self._submods:
-            present, negated = extract_condition_types(sm.conditions)
-            sm.condition_types_present = present
-            sm.condition_types_negated = negated
+        worker = ScanWorker(instance_root=self._instance_root)
+        thread = QThread(self)
+        worker.moveToThread(thread)
+        thread.started.connect(worker.run)
 
-        from oar_priority_manager.core.tag_engine import apply_overrides, compute_tags
-        for sm in self._submods:
-            sm.tags = compute_tags(sm)
-        apply_overrides(self._submods, self._config.tag_overrides)
+        def on_finished(result: tuple) -> None:
+            submods, conflict_map, stacks = result
+            from oar_priority_manager.core.tag_engine import apply_overrides
 
-        self._tree_panel.refresh(self._submods)
-        # Full data reload — all cached stack widgets are stale (issue #66).
-        self._stacks_panel.clear_cache()
-        self._stacks_panel.refresh(self._conflict_map)
+            apply_overrides(submods, self._config.tag_overrides)
+            self._submods = submods
+            self._conflict_map = conflict_map
+            self._stacks = stacks
+            self._tree_panel.refresh(self._submods)
+            # Full data reload — all cached stack widgets are stale (issue #66).
+            self._stacks_panel.clear_cache()
+            self._stacks_panel.refresh(self._conflict_map)
+            self._refresh_warning_count()
+            if (
+                self._scan_issues_pane is not None
+                and self._scan_issues_pane.isVisible()
+            ):
+                self._scan_issues_pane.set_entries(
+                    collect_warning_entries(self._submods)
+                )
+            thread.quit()
+            self._scan_thread = None
 
-        self._refresh_warning_count()
-        if self._scan_issues_pane is not None and self._scan_issues_pane.isVisible():
-            self._scan_issues_pane.set_entries(
-                collect_warning_entries(self._submods)
-            )
+        def on_failed(exc: Exception) -> None:
+            thread.quit()
+            self._scan_thread = None
+            raise exc
+
+        worker.finished.connect(on_finished)
+        worker.failed.connect(on_failed)
+
+        self._scan_thread = thread
+        thread.start()
 
     def _apply_config(self) -> None:
         """Apply persisted config values to UI widgets (spec §8.3)."""

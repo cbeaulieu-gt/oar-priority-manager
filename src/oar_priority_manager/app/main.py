@@ -11,6 +11,7 @@ import os
 import sys
 from pathlib import Path
 
+from PySide6.QtCore import QEventLoop, QThread
 from PySide6.QtWidgets import QApplication
 
 from oar_priority_manager.app.config import (
@@ -22,6 +23,7 @@ from oar_priority_manager.app.config import (
 from oar_priority_manager.core.anim_scanner import build_conflict_map, scan_animations
 from oar_priority_manager.core.filter_engine import extract_condition_types
 from oar_priority_manager.core.priority_resolver import build_stacks
+from oar_priority_manager.core.scan_worker import ScanWorker
 from oar_priority_manager.core.scanner import scan_mods
 from oar_priority_manager.core.tag_engine import apply_overrides, compute_tags
 
@@ -47,7 +49,16 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 def run_scan(instance_root: Path) -> tuple:
     """Execute the full scan pipeline (spec §6.3 steps 2-3).
 
-    Returns (submods, conflict_map, stacks).
+    This synchronous function exists as the canonical scan implementation and
+    is called internally by ScanWorker.  It remains public so callers that
+    need a blocking scan (e.g. tests) can invoke it directly.
+
+    Args:
+        instance_root: Path to the MO2 instance root containing mods/ and
+            overwrite/ subdirectories.
+
+    Returns:
+        A 3-tuple ``(submods, conflict_map, stacks)``.
     """
     mods_dir = instance_root / "mods"
     overwrite_dir = instance_root / "overwrite"
@@ -64,6 +75,59 @@ def run_scan(instance_root: Path) -> tuple:
         sm.tags = compute_tags(sm)
 
     return submods, conflict_map, stacks
+
+
+def _run_scan_blocking(instance_root: Path) -> tuple:
+    """Run the scan pipeline via ScanWorker, blocking until complete.
+
+    Uses a QEventLoop that exits when the worker emits finished or failed.
+    This pattern keeps the GUI thread's event loop alive during the wait
+    (important for splash screens, etc.) while still blocking main() from
+    proceeding until the first scan has data.
+
+    If the worker fails, the exception captured by the ``failed`` signal is
+    re-raised so main() can handle it like any other startup error.
+
+    Args:
+        instance_root: Path to the MO2 instance root.
+
+    Returns:
+        A 3-tuple ``(submods, conflict_map, stacks)``.
+
+    Raises:
+        Exception: Re-raises whatever exception the worker captured if the
+            scan pipeline raises unexpectedly.
+    """
+    worker = ScanWorker(instance_root=instance_root)
+    thread = QThread()
+    worker.moveToThread(thread)
+    thread.started.connect(worker.run)
+
+    loop = QEventLoop()
+    result_holder: list[tuple] = []
+    error_holder: list[Exception] = []
+
+    def on_finished(result: tuple) -> None:
+        result_holder.append(result)
+        loop.quit()
+
+    def on_failed(exc: Exception) -> None:
+        error_holder.append(exc)
+        loop.quit()
+
+    worker.finished.connect(on_finished)
+    worker.failed.connect(on_failed)
+
+    thread.start()
+    loop.exec()  # blocks until on_finished or on_failed calls loop.quit()
+
+    thread.quit()
+    thread.wait()
+
+    if error_holder:
+        raise error_holder[0]
+
+    return result_holder[0]
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -101,7 +165,10 @@ def main(argv: list[str] | None = None) -> int:
     config_path = instance_root / CONFIG_SUBDIR / CONFIG_FILENAME
     app_config = load_config(config_path)
 
-    submods, conflict_map, stacks = run_scan(instance_root)
+    # Run the scan off the GUI thread.  _run_scan_blocking pumps the event
+    # loop while waiting so the window manager stays responsive during the
+    # initial scan on large instances.
+    submods, conflict_map, stacks = _run_scan_blocking(instance_root)
     apply_overrides(submods, app_config.tag_overrides)
     logger.info("Loaded %d submods, %d animation stacks", len(submods), len(stacks))
 

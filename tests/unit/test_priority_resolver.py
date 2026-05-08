@@ -14,6 +14,7 @@ from oar_priority_manager.core.priority_resolver import (
     INT32_MAX,
     INT32_MIN,
     PriorityOverflowError,
+    _get_scope_submods,
     build_stacks,
     move_to_top,
     set_exact,
@@ -188,3 +189,36 @@ class TestShift:
         sub_b = _sm("b", INT32_MAX, animations=["idle.hkx"])
         with pytest.raises(PriorityOverflowError):
             shift([sub_a, sub_b], floor_priority=1)
+
+
+class TestGetScopeSubmodsNoneGuard:
+    """Tests for the None-target guard in ``_get_scope_submods``.
+
+    The UI may call ``move_to_top`` before a submod is selected (e.g.,
+    keyboard shortcut fires before the tree selection has settled).  The
+    defensive guard ensures the function returns an empty list rather than
+    raising ``AttributeError: 'NoneType' object has no attribute
+    'animations'``.
+    """
+
+    def test_none_target_returns_empty_list(self) -> None:
+        """``_get_scope_submods(None, …)`` must return ``[]``, never raise."""
+        result = _get_scope_submods(None, {}, "submod")  # type: ignore[arg-type]
+        assert result == []
+
+    def test_none_target_non_empty_conflict_map_returns_empty(self) -> None:
+        """Guard holds even when the conflict map has entries."""
+        sm = _sm("other", 100, animations=["idle.hkx"])
+        conflict_map = {"idle.hkx": [sm]}
+        result = _get_scope_submods(None, conflict_map, "mod")  # type: ignore[arg-type]
+        assert result == []
+
+    def test_move_to_top_none_target_returns_empty_dict(self) -> None:
+        """``move_to_top(None, …)`` must return ``{}`` without raising.
+
+        The public API propagates the empty-list result from
+        ``_get_scope_submods`` and short-circuits to ``{}`` (already
+        handled by the ``if not scope_submods: return {}`` branch).
+        """
+        result = move_to_top(None, {}, scope="submod")  # type: ignore[arg-type]
+        assert result == {}

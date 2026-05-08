@@ -491,8 +491,23 @@ class MainWindow(QMainWindow):
         )
         return reply == QMessageBox.StandardButton.Ok
 
-    def _on_action(self, action: str, submod: SubMod, value: object) -> None:
-        """Handle priority mutation actions from the stacks panel (spec §6.3 step 5)."""
+    def _on_action(self, action: str, submod: SubMod | None, value: object) -> None:
+        """Handle priority mutation actions from the stacks panel (spec §6.3 step 5).
+
+        Args:
+            action: One of ``"move_to_top"``, ``"move_to_top_replacer"``,
+                ``"move_to_top_mod"``, ``"set_exact"``, or ``"shift"``.
+            submod: The target submod the action applies to, or ``None``
+                when no row is currently selected (e.g., a keyboard shortcut
+                fires before the tree selection has settled).  A ``None``
+                submod is a silent no-op — belt-and-suspenders guard on top
+                of the button ``setEnabled`` gating in ``StacksPanel``.
+            value: Action-specific parameter (int for ``set_exact``/``shift``,
+                ``None`` for move-to-top variants).
+        """
+        if submod is None:
+            return
+
         from oar_priority_manager.core.override_manager import write_override
         from oar_priority_manager.core.priority_resolver import (
             PriorityOverflowError,

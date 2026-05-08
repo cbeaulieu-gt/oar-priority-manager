@@ -43,11 +43,32 @@ def build_stacks(conflict_map: dict[str, list[SubMod]]) -> list[PriorityStack]:
 
 
 def _get_scope_submods(
-    target: SubMod,
+    target: SubMod | None,
     conflict_map: dict[str, list[SubMod]],
     scope: str,
 ) -> list[SubMod]:
-    """Get all unique submods in the scope (submod/replacer/mod)."""
+    """Get all unique submods in the scope (submod/replacer/mod).
+
+    Args:
+        target: The submod selected by the user, or ``None`` when the UI
+            dispatches an action before a selection exists.  A ``None``
+            target returns an empty list so callers see a no-op result
+            rather than an ``AttributeError``.
+        conflict_map: Animation filename -> list of competing submods.
+        scope: One of ``"submod"``, ``"replacer"``, or ``"mod"``.
+
+    Returns:
+        Unique submods within the requested scope, in encounter order.
+        Returns ``[]`` when ``target`` is ``None``.
+
+    Note:
+        The ``None`` guard exists because the UI may dispatch actions
+        (e.g., via keyboard shortcuts) before any row is selected in the
+        tree.  Callers that pass a guaranteed non-None value are unaffected.
+    """
+    if target is None:
+        return []
+
     seen: set[int] = set()
     result: list[SubMod] = []
 
@@ -96,19 +117,22 @@ def _get_external_max(
 
 
 def move_to_top(
-    target: SubMod,
+    target: SubMod | None,
     conflict_map: dict[str, list[SubMod]],
     scope: str = "submod",
 ) -> dict[SubMod, int]:
     """Compute new priorities to make target (and scope) #1 in all stacks.
 
     Args:
-        target: The submod the user selected.
+        target: The submod the user selected, or ``None`` when no row is
+            selected.  A ``None`` target produces an empty result dict
+            (the ``_get_scope_submods`` None guard fires first).
         conflict_map: Animation filename -> list of competing submods.
         scope: "submod", "replacer", or "mod".
 
     Returns:
-        Dict of SubMod -> new_priority. Empty if already winning everywhere.
+        Dict of SubMod -> new_priority. Empty if already winning everywhere
+        or if ``target`` is ``None``.
 
     Raises:
         PriorityOverflowError: If computed priority exceeds INT32_MAX.

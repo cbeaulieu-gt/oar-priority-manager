@@ -33,6 +33,16 @@ class ConditionsPanel(QWidget):
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
+        # Object name targets QWidget#ConditionsPanel_root in custom.qss for
+        # the pane-level border / background rule (issue #98).
+        self.setObjectName("ConditionsPanel_root")
+        # WA_StyledBackground is required so Qt actually paints the
+        # background: rule from custom.qss.  Without it, Qt silently skips
+        # background painting on plain QWidget subclasses — borders still
+        # render (they go through a different drawing path) but the fill
+        # colour is never applied.  This is the canonical fix for that
+        # well-known Qt/PySide6 gotcha.
+        self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
         self._current_submod: SubMod | None = None
         self._show_formatted: bool = True
         self._setup_ui()
@@ -51,43 +61,18 @@ class ConditionsPanel(QWidget):
         self._header.setTextFormat(Qt.TextFormat.RichText)
         header_layout.addWidget(self._header, stretch=1)
 
-        # Segmented toggle matching tree_panel.py / stacks_panel.py pattern
-        _seg_checked = (
-            "QPushButton:checked {"
-            "  background: #3a3a5a;"
-            "  font-weight: bold;"
-            "  border: 1px solid #5a5a8a;"
-            "}"
-        )
-        _seg_unchecked = (
-            "QPushButton {"
-            "  background: #2a2a2a;"
-            "  border: 1px solid #444;"
-            "  padding: 3px 10px;"
-            "}"
-            "QPushButton:hover { background: #333; }"
-        )
-
+        # Segmented toggle matching tree_panel.py / stacks_panel.py pattern.
+        # Object names match QPushButton#SegToggle_left / #SegToggle_right
+        # in custom.qss.
         self._formatted_btn = QPushButton("Formatted")
         self._formatted_btn.setCheckable(True)
         self._formatted_btn.setChecked(True)
-        self._formatted_btn.setStyleSheet(
-            _seg_unchecked + _seg_checked
-            + "QPushButton { border-radius: 0px;"
-            "  border-top-left-radius: 4px;"
-            "  border-bottom-left-radius: 4px;"
-            "  border-right: none; }"
-        )
+        self._formatted_btn.setObjectName("SegToggle_left")
 
         self._json_btn = QPushButton("JSON")
         self._json_btn.setCheckable(True)
         self._json_btn.setChecked(False)
-        self._json_btn.setStyleSheet(
-            _seg_unchecked + _seg_checked
-            + "QPushButton { border-radius: 0px;"
-            "  border-top-right-radius: 4px;"
-            "  border-bottom-right-radius: 4px; }"
-        )
+        self._json_btn.setObjectName("SegToggle_right")
 
         self._toggle_group = QButtonGroup(self)
         self._toggle_group.setExclusive(True)
@@ -122,7 +107,8 @@ class ConditionsPanel(QWidget):
 
         # -- Stats footer --
         self._stats_label = QLabel("")
-        self._stats_label.setStyleSheet("color: #565f89; padding: 4px 8px;")
+        # Object name matches QLabel#ConditionsPanel_statsLabel in custom.qss
+        self._stats_label.setObjectName("ConditionsPanel_statsLabel")
         layout.addWidget(self._stats_label)
 
     def _set_mode(self, formatted: bool) -> None:
@@ -184,7 +170,8 @@ class ConditionsPanel(QWidget):
     def _add_placeholder(self, text: str) -> None:
         """Add a placeholder label to the formatted view."""
         label = QLabel(text)
-        label.setStyleSheet("color: #565f89; padding: 8px;")
+        # Object name matches QLabel#ConditionsPanel_placeholder in custom.qss
+        label.setObjectName("ConditionsPanel_placeholder")
         self._formatted_layout.addWidget(label)
 
     def _render_nodes(
@@ -317,11 +304,10 @@ class ConditionsPanel(QWidget):
         """Render a PRESET reference as a clickable expandable card."""
         preset_name = node.preset_name or "Unknown"
 
-        # Create a container widget for the preset card
+        # Create a container widget for the preset card.
+        # Object name matches QWidget#ConditionsPanel_presetCard in custom.qss
         card = QWidget()
-        card.setStyleSheet(
-            "background: #2a2a3a; border: 1px solid #444; border-radius: 6px;"
-        )
+        card.setObjectName("ConditionsPanel_presetCard")
         card_layout = QVBoxLayout(card)
         card_layout.setContentsMargins(10, 8, 10, 8)
 

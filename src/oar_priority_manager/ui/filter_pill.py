@@ -82,15 +82,13 @@ class PillWidget(QWidget):
         layout.addWidget(self._close_btn)
 
     def _apply_style(self) -> None:
-        """Apply a minimal rounded-border stylesheet to the container."""
-        self.setStyleSheet(
-            "PillWidget {"
-            "  border: 1px solid palette(mid);"
-            "  border-radius: 8px;"
-            "  padding: 2px 6px;"
-            "  background: palette(button);"
-            "}"
-        )
+        """Apply a minimal rounded-border stylesheet to the container.
+
+        The visual style is defined in custom.qss under the ``PillWidget``
+        type selector (palette-role references, no hard-coded colours).
+        This method is intentionally a no-op; it is retained so that
+        subclasses and tests that call it do not break.
+        """
 
     def _on_close_clicked(self) -> None:
         """Emit ``removed`` with the condition name when the button fires."""

@@ -5,9 +5,10 @@ See spec §7.1 (layout), §6.3 (data flow).
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, QThread
 from PySide6.QtGui import QKeySequence, QShortcut
 from PySide6.QtWidgets import (
     QHBoxLayout,
@@ -20,18 +21,17 @@ from PySide6.QtWidgets import (
 )
 
 from oar_priority_manager.app.config import AppConfig
-from oar_priority_manager.core.anim_scanner import build_conflict_map, scan_animations
+from oar_priority_manager.core.anim_scanner import build_conflict_map
 from oar_priority_manager.core.filter_engine import (
     AdvancedFilterQuery,
     collect_known_condition_types,
-    extract_condition_types,
     match_advanced_filter,
     match_filter,
     parse_filter_query,
 )
 from oar_priority_manager.core.models import PriorityStack, SubMod
 from oar_priority_manager.core.priority_resolver import build_stacks
-from oar_priority_manager.core.scanner import scan_mods
+from oar_priority_manager.core.scan_worker import ScanWorker
 from oar_priority_manager.core.warning_report import collect_warning_entries
 from oar_priority_manager.ui.conditions_panel import ConditionsPanel
 from oar_priority_manager.ui.details_panel import DetailsPanel
@@ -41,6 +41,8 @@ from oar_priority_manager.ui.search_bar import SearchBar, SearchMode, detect_sea
 from oar_priority_manager.ui.stacks_panel import StacksPanel
 from oar_priority_manager.ui.tree_model import SearchIndex
 from oar_priority_manager.ui.tree_panel import TreePanel
+
+logger = logging.getLogger(__name__)
 
 
 class MainWindow(QMainWindow):
@@ -73,6 +75,12 @@ class MainWindow(QMainWindow):
         # Scan Issues log pane (non-modal; lazily created on first open).
         self._scan_issues_pane: ScanIssuesPane | None = None
         self._warning_count: int = 0
+        # Background scan thread and worker; both None when no scan is in
+        # progress.  The worker must be held on self — signal connections
+        # in PySide6 are weak references, so a parentless local variable
+        # would be GC'd after _on_refresh returns, silencing the slot.
+        self._scan_thread: QThread | None = None
+        self._scan_worker: ScanWorker | None = None
 
         self._setup_ui()
         self._connect_signals()
@@ -619,32 +627,99 @@ class MainWindow(QMainWindow):
         self._on_refresh()
 
     def _on_refresh(self) -> None:
-        """Re-scan the VFS and rebuild all models (spec §6.3 step 6)."""
-        mods_dir = self._instance_root / "mods"
-        overwrite_dir = self._instance_root / "overwrite"
+        """Re-scan the VFS with a modal progress dialog (spec §6.3 step 6).
 
-        self._submods = scan_mods(mods_dir, overwrite_dir)
-        scan_animations(self._submods)
-        self._conflict_map = build_conflict_map(self._submods)
-        self._stacks = build_stacks(self._conflict_map)
+        Shows a ``WindowModal`` :class:`~oar_priority_manager.ui\
+.scan_progress_dialog.ScanProgressDialog` before starting the worker so
+        the user cannot interact with the main window during the scan.
+        The dialog blocks via ``exec()`` until the scan completes, fails,
+        or is cancelled — eliminating the race condition where a delegate
+        paint or filter iteration could hold a stale ``self._submods``
+        reference while the worker's ``finished`` slot mutates it.
 
-        for sm in self._submods:
-            present, negated = extract_condition_types(sm.conditions)
-            sm.condition_types_present = present
-            sm.condition_types_negated = negated
+        On successful completion, ``on_finished`` re-populates the panels
+        after the dialog closes.  On failure, a ``QMessageBox`` is shown.
+        Cancellation is a no-op (the user dismissed the dialog deliberately).
 
-        from oar_priority_manager.core.tag_engine import apply_overrides, compute_tags
-        for sm in self._submods:
-            sm.tags = compute_tags(sm)
-        apply_overrides(self._submods, self._config.tag_overrides)
+        A guard prevents concurrent scans: if ``self._scan_thread`` is
+        already running, the new request is silently ignored.
+        """
+        if self._scan_thread is not None and self._scan_thread.isRunning():
+            return
 
+        from oar_priority_manager.ui.scan_progress_dialog import (
+            ScanProgressDialog,
+        )
+
+        worker = ScanWorker(instance_root=self._instance_root)
+        self._scan_worker = worker  # keep strong ref; PySide6 slots are weak
+        thread = QThread(self)
+        worker.moveToThread(thread)
+        thread.started.connect(worker.run)
+        self._scan_thread = thread
+
+        dialog = ScanProgressDialog(mode="refresh", parent=self)
+
+        result_holder: list[tuple] = []
+        error_holder: list[Exception] = []
+
+        def on_finished(result: tuple) -> None:
+            result_holder.append(result)
+
+        def on_failed(exc: Exception) -> None:
+            error_holder.append(exc)
+
+        # Wire worker signals → dialog slots (progress display + auto-dismiss)
+        worker.progress_updated.connect(dialog.on_progress)
+        worker.finished.connect(dialog.on_finished)
+        worker.failed.connect(dialog.on_failed)
+        worker.cancelled.connect(dialog.on_cancelled)
+
+        # Wire worker signals → local holders for post-dialog processing
+        worker.finished.connect(on_finished)
+        worker.failed.connect(on_failed)
+
+        # Wire cancel button → thread interruption
+        dialog.cancellation_requested.connect(thread.requestInterruption)
+
+        thread.start()
+        dialog.exec()  # blocks (WindowModal) until dialog is dismissed
+
+        thread.quit()
+        thread.wait()
+        self._scan_thread = None
+        self._scan_worker = None
+
+        if error_holder:
+            exc = error_holder[0]
+            logger.error("Refresh scan failed: %s", exc, exc_info=exc)
+            QMessageBox.warning(
+                self,
+                "Scan Failed",
+                f"Background scan failed:\n{exc}",
+            )
+            return
+
+        if not result_holder:
+            # Cancelled — nothing to update.
+            return
+
+        submods, conflict_map, stacks = result_holder[0]
+        from oar_priority_manager.core.tag_engine import apply_overrides
+
+        apply_overrides(submods, self._config.tag_overrides)
+        self._submods = submods
+        self._conflict_map = conflict_map
+        self._stacks = stacks
         self._tree_panel.refresh(self._submods)
         # Full data reload — all cached stack widgets are stale (issue #66).
         self._stacks_panel.clear_cache()
         self._stacks_panel.refresh(self._conflict_map)
-
         self._refresh_warning_count()
-        if self._scan_issues_pane is not None and self._scan_issues_pane.isVisible():
+        if (
+            self._scan_issues_pane is not None
+            and self._scan_issues_pane.isVisible()
+        ):
             self._scan_issues_pane.set_entries(
                 collect_warning_entries(self._submods)
             )

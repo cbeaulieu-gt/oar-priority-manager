@@ -5,6 +5,7 @@ See spec §7.1 (layout), §6.3 (data flow).
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 
 from PySide6.QtCore import Qt, QThread
@@ -41,6 +42,8 @@ from oar_priority_manager.ui.stacks_panel import StacksPanel
 from oar_priority_manager.ui.tree_model import SearchIndex
 from oar_priority_manager.ui.tree_panel import TreePanel
 
+logger = logging.getLogger(__name__)
+
 
 class MainWindow(QMainWindow):
     """Three-pane main window: (Tree+Details) | Stacks | Conditions."""
@@ -72,8 +75,12 @@ class MainWindow(QMainWindow):
         # Scan Issues log pane (non-modal; lazily created on first open).
         self._scan_issues_pane: ScanIssuesPane | None = None
         self._warning_count: int = 0
-        # Background scan thread; None when no scan is in progress.
+        # Background scan thread and worker; both None when no scan is in
+        # progress.  The worker must be held on self — signal connections
+        # in PySide6 are weak references, so a parentless local variable
+        # would be GC'd after _on_refresh returns, silencing the slot.
         self._scan_thread: QThread | None = None
+        self._scan_worker: ScanWorker | None = None
 
         self._setup_ui()
         self._connect_signals()
@@ -630,6 +637,7 @@ class MainWindow(QMainWindow):
             return
 
         worker = ScanWorker(instance_root=self._instance_root)
+        self._scan_worker = worker  # keep strong ref; PySide6 slots are weak
         thread = QThread(self)
         worker.moveToThread(thread)
         thread.started.connect(worker.run)
@@ -656,11 +664,18 @@ class MainWindow(QMainWindow):
                 )
             thread.quit()
             self._scan_thread = None
+            self._scan_worker = None
 
         def on_failed(exc: Exception) -> None:
             thread.quit()
             self._scan_thread = None
-            raise exc
+            self._scan_worker = None
+            logger.error("Refresh scan failed: %s", exc, exc_info=exc)
+            QMessageBox.warning(
+                self,
+                "Scan Failed",
+                f"Background scan failed:\n{exc}",
+            )
 
         worker.finished.connect(on_finished)
         worker.failed.connect(on_failed)
